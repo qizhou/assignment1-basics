@@ -1,6 +1,9 @@
 import torch
 import math
 from einops import reduce, einsum, repeat
+from torch import Tensor
+from jaxtyping import Bool, Float, Int
+
 
 class Linear(torch.nn.Module):
     def __init__(self, in_features: int, out_features: int, device=None, dtype=None):
@@ -106,7 +109,7 @@ class RoPE(torch.nn.Module):
         # token_positions could be (T,) or (B,T). We align the *T* dimension to x's T.
         # while cos.ndim < x.ndim - 1:  # x.ndim-1 because cos lacks the last dim
         #     cos = cos.unsqueeze(0)
-        #     sin = sin.unsqueeze(0)
+        sin = sin.unsqueeze(0)
 
         # Interleaved RoPE: rotate pairs (x0,x1), (x2,x3), ...
         x_even = x[..., 0::2]  # (..., T, half)
@@ -119,3 +122,18 @@ class RoPE(torch.nn.Module):
         # Re-interleave
         out = torch.stack((out_even, out_odd), dim=-1).flatten(-2)  # (..., T, d_k)
         return out
+
+
+def softmax(in_features: Float[Tensor, " ..."], dim: int):
+    # Subtract max value
+    repeat_vec = [1 for _ in range(len(in_features.shape))]
+    repeat_vec[dim] = in_features.shape[dim]
+    max_v, _ = in_features.max(dim, keepdim=True)
+    max_v = max_v.repeat(*repeat_vec)
+
+    # Calculate exp and the sum
+    ev = (in_features - max_v).exp()
+    sum_ev = ev.sum(dim, keepdim=True)
+    sum_ev = sum_ev.repeat(*repeat_vec)
+
+    return ev / sum_ev
