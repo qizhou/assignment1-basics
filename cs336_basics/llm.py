@@ -79,3 +79,43 @@ class SwiGLU(torch.nn.Module):
         result = einsum(self.w2, inner, "d_model d_ff, ... d_ff -> ... d_model")
         return result
 
+
+class RoPE(torch.nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
+        super(RoPE, self).__init__()
+        self.d_k = d_k
+        self.max_seq_len = max_seq_len
+        i_s = torch.linspace(0, max_seq_len-1, max_seq_len)
+        t_s = 1.0 / (theta ** ((2 * torch.linspace(1, d_k//2, d_k//2) - 2) / d_k))
+
+        freqs = einsum(i_s, t_s, 'i,j->i j')
+
+        self.register_buffer("rope_cos", freqs.cos(), persistent=False)
+        self.register_buffer("rope_sin", freqs.sin(), persistent=False)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        *prefix, T, D = x.shape
+        assert D == self.d_k, f"expected last dim {self.d_k}, got {D}"
+        assert T <= self.max_seq_len, f"T={T} exceeds max_seq_len={self.max_seq_len}"
+
+        cos = self.rope_cos.index_select(0, token_positions.reshape(-1)).view(*token_positions.shape, -1)
+        sin = self.rope_sin.index_select(0, token_positions.reshape(-1)).view(*token_positions.shape, -1)
+
+        # We want cos/sin broadcastable to x_even/x_odd which are (..., T, half)
+        # So we reshape cos/sin to have leading singleton dims for any prefix dims.
+        # token_positions could be (T,) or (B,T). We align the *T* dimension to x's T.
+        # while cos.ndim < x.ndim - 1:  # x.ndim-1 because cos lacks the last dim
+        #     cos = cos.unsqueeze(0)
+        #     sin = sin.unsqueeze(0)
+
+        # Interleaved RoPE: rotate pairs (x0,x1), (x2,x3), ...
+        x_even = x[..., 0::2]  # (..., T, half)
+        x_odd  = x[..., 1::2]  # (..., T, half)
+
+        # Apply rotation
+        out_even = x_even * cos - x_odd * sin
+        out_odd  = x_even * sin + x_odd * cos
+
+        # Re-interleave
+        out = torch.stack((out_even, out_odd), dim=-1).flatten(-2)  # (..., T, d_k)
+        return out
