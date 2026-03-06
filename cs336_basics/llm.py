@@ -2,6 +2,7 @@ import torch
 import math
 from einops import reduce, einsum, repeat
 from torch import Tensor
+import torch.nn as nn
 from jaxtyping import Bool, Float, Int
 
 
@@ -157,3 +158,42 @@ def scaled_dot_product_attention(
     return einsum(sm, V, "... queries keys, ... keys d_v -> ... queries d_v")
 
 
+class CausalMultiHeadSelfAttention(torch.nn.Module):
+    def __init__(self, d_model, num_heads, rope=None):
+        super(CausalMultiHeadSelfAttention, self).__init__()
+        self.num_heads = num_heads
+        self.d_k = self.d_v = d_model // num_heads
+        self.d_model = d_model
+        self.rope = rope
+        self.w_q = torch.nn.Parameter(torch.zeros(d_model, d_model))
+        self.w_k = torch.nn.Parameter(torch.zeros(d_model, d_model))
+        self.w_v = torch.nn.Parameter(torch.zeros(d_model, d_model))
+        self.w_o = torch.nn.Parameter(torch.zeros(d_model, d_model))
+
+    def forward(self, in_features: torch.Tensor, token_positions: Tensor | None = None):
+        # in_features "batch seq_len d_in=d_model"
+        batch, seq_len, _ = in_features.shape
+        # q,k,v "batch seq_len d_model"
+        q = einsum(in_features, self.w_q, "... seq_len d_model, dd d_model -> ... seq_len dd")
+        k = einsum(in_features, self.w_k, "... seq_len d_model, dd d_model -> ... seq_len dd")
+        v = einsum(in_features, self.w_v, "... seq_len d_model, dd d_model -> ... seq_len dd")
+
+        # Reshape into heads: "batch, num_heads, seq_len, d_k"
+        q = q.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+        k = k.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+        v = v.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+
+        if self.rope is not None:
+            q = self.rope(q, token_positions)
+            k = self.rope(k, token_positions)
+
+        # Create mask
+        mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool))
+        full_mask = mask.unsqueeze(0).unsqueeze(0)
+
+        # attn "batch, num_heads, seq_len, d_k"
+        attn = scaled_dot_product_attention(q, k, v, full_mask)
+
+        attn = attn.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
+
+        return einsum(attn, self.w_o, "... seq_len d_model, dd d_model -> ... seq_len dd")
