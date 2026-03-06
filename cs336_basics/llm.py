@@ -137,3 +137,23 @@ def softmax(in_features: Float[Tensor, " ..."], dim: int):
     sum_ev = sum_ev.repeat(*repeat_vec)
 
     return ev / sum_ev
+
+
+def scaled_dot_product_attention(
+    Q: Float[Tensor, " ... queries d_k"],
+    K: Float[Tensor, " ... keys d_k"],
+    V: Float[Tensor, " ... values d_v"],
+    mask: Bool[Tensor, " ... queries keys"] | None = None
+) -> Float[Tensor, " ... queries d_v"]:
+    # keys and values == seq_len
+    d_k = Q.shape[-1]
+    qk = einsum(Q, K, "... queries d_k, ... keys d_k -> ... queries keys") / math.sqrt(d_k)
+    if mask is not None:
+        # qk[~mask] = -torch.inf # forward works, but not autograde
+        qk = qk.masked_fill(~mask, float("-inf"))
+
+    # softmax over keys
+    sm = softmax(qk, -1)
+    return einsum(sm, V, "... queries keys, ... keys d_v -> ... queries d_v")
+
+
