@@ -97,10 +97,14 @@ class RoPE(torch.nn.Module):
         self.register_buffer("rope_cos", freqs.cos(), persistent=False)
         self.register_buffer("rope_sin", freqs.sin(), persistent=False)
 
-    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
         *prefix, T, D = x.shape
         assert D == self.d_k, f"expected last dim {self.d_k}, got {D}"
         assert T <= self.max_seq_len, f"T={T} exceeds max_seq_len={self.max_seq_len}"
+
+        if token_positions is None:
+            # (T,)
+            token_positions = torch.arange(T)
 
         cos = self.rope_cos.index_select(0, token_positions.reshape(-1)).view(*token_positions.shape, -1)
         sin = self.rope_sin.index_select(0, token_positions.reshape(-1)).view(*token_positions.shape, -1)
@@ -146,7 +150,8 @@ def scaled_dot_product_attention(
     V: Float[Tensor, " ... values d_v"],
     mask: Bool[Tensor, " ... queries keys"] | None = None
 ) -> Float[Tensor, " ... queries d_v"]:
-    # keys and values == seq_len
+    # queries, keys, and values == seq_len
+    # d_v == d_k
     d_k = Q.shape[-1]
     qk = einsum(Q, K, "... queries d_k, ... keys d_k -> ... queries keys") / math.sqrt(d_k)
     if mask is not None:
@@ -194,6 +199,7 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         # attn "batch, num_heads, seq_len, d_k"
         attn = scaled_dot_product_attention(q, k, v, full_mask)
 
+        # attn "batch, seq_len, num_heads, d_k" => "batch, seq_len, d_model"
         attn = attn.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
 
         return einsum(attn, self.w_o, "... seq_len d_model, dd d_model -> ... seq_len dd")

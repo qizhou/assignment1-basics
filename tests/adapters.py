@@ -297,7 +297,36 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    ln1 = RMSNorm(d_model, 1e-5)
+    ln1.load_state_dict({"weights": weights["ln1.weight"]})
+
+    d_k = d_model // num_heads
+    rope = RoPE(theta, d_k, max_seq_len)
+    attn = CausalMultiHeadSelfAttention(d_model, num_heads, rope)
+    attn.load_state_dict({
+        "w_q": weights["attn.q_proj.weight"],
+        "w_k": weights["attn.k_proj.weight"],
+        "w_v": weights["attn.v_proj.weight"],
+        "w_o": weights["attn.output_proj.weight"],
+    })
+
+    # The first part of the block
+    first = in_features + attn.forward(ln1.forward(in_features))
+
+    ln2 = RMSNorm(d_model, 1e-5)
+    ln2.load_state_dict({"weights": weights["ln2.weight"]})
+    swiglu = SwiGLU(d_model, d_ff)
+    # If your state dict keys match, you can use `load_state_dict()`
+    swiglu.load_state_dict({
+        "w1": weights["ffn.w1.weight"],
+        "w2": weights["ffn.w2.weight"],
+        "w3": weights["ffn.w3.weight"]
+    })
+
+    # The second part of the block
+    second = first + swiglu.forward(ln2.forward(first))
+
+    return second
 
 
 def run_transformer_lm(
