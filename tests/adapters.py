@@ -498,7 +498,24 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    batch_size, vocab_size = inputs.shape
+
+    # Subtract max value
+    repeat_vec = [1, 1]
+    repeat_vec[1] = vocab_size
+    max_v, _ = inputs.max(1, keepdim=True)
+    max_v = max_v.repeat(*repeat_vec)
+
+    # Calculate exp and the sum
+    ev = (inputs - max_v).exp()
+    sum_ev = ev.sum(1, keepdim=True)
+    sum_ev = sum_ev.repeat(*repeat_vec)
+
+    neg_log_prob = -(inputs-max_v) + sum_ev.log()
+
+    print(neg_log_prob)
+
+    return (neg_log_prob[torch.arange(batch_size), targets]).mean()
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
