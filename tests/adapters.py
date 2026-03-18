@@ -8,7 +8,7 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from cs336_basics.llm import RMSNorm,Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention
+from cs336_basics.llm import RMSNorm,Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, transformer_block
 
 def run_linear(
     d_in: int,
@@ -297,36 +297,8 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    ln1 = RMSNorm(d_model, 1e-5)
-    ln1.load_state_dict({"weights": weights["ln1.weight"]})
 
-    d_k = d_model // num_heads
-    rope = RoPE(theta, d_k, max_seq_len)
-    attn = CausalMultiHeadSelfAttention(d_model, num_heads, rope)
-    attn.load_state_dict({
-        "w_q": weights["attn.q_proj.weight"],
-        "w_k": weights["attn.k_proj.weight"],
-        "w_v": weights["attn.v_proj.weight"],
-        "w_o": weights["attn.output_proj.weight"],
-    })
-
-    # The first part of the block
-    first = in_features + attn.forward(ln1.forward(in_features))
-
-    ln2 = RMSNorm(d_model, 1e-5)
-    ln2.load_state_dict({"weights": weights["ln2.weight"]})
-    swiglu = SwiGLU(d_model, d_ff)
-    # If your state dict keys match, you can use `load_state_dict()`
-    swiglu.load_state_dict({
-        "w1": weights["ffn.w1.weight"],
-        "w2": weights["ffn.w2.weight"],
-        "w3": weights["ffn.w3.weight"]
-    })
-
-    # The second part of the block
-    second = first + swiglu.forward(ln2.forward(first))
-
-    return second
+    return transformer_block(d_model, num_heads, d_ff, max_seq_len, theta, weights, in_features)
 
 
 def run_transformer_lm(
@@ -408,7 +380,25 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+
+    l = Embedding(vocab_size, d_model)
+    l.load_state_dict({"W": weights["token_embeddings.weight"]})
+    inp = l.forward(in_indices)
+
+    for layer in range(num_layers):
+        state_preifx = f"layers.{layer}."
+        out = transformer_block(d_model, num_heads, d_ff, context_length, rope_theta, weights, inp, state_preifx)
+        inp = out
+
+    ln_final = RMSNorm(d_model, 1e-5)
+    ln_final.load_state_dict({"weights": weights["ln_final.weight"]})
+    out = ln_final.forward(inp)
+
+    # out is [batch seq_len d_model]
+    lm = Linear(d_model, vocab_size)
+    lm.load_state_dict({"W": weights["lm_head.weight"]})
+    # pre_softmax is [batch seq_len vocab_size]
+    return lm.forward(out)
 
 
 def run_rmsnorm(

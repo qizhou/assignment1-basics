@@ -98,13 +98,13 @@ class RoPE(torch.nn.Module):
         self.register_buffer("rope_sin", freqs.sin(), persistent=False)
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
-        *prefix, T, D = x.shape
-        assert D == self.d_k, f"expected last dim {self.d_k}, got {D}"
-        assert T <= self.max_seq_len, f"T={T} exceeds max_seq_len={self.max_seq_len}"
+        *prefix, seq_len, d_k = x.shape
+        assert d_k == self.d_k, f"expected last dim {self.d_k}, got {d_k}"
+        assert seq_len <= self.max_seq_len, f"T={seq_len} exceeds max_seq_len={self.max_seq_len}"
 
         if token_positions is None:
             # (T,)
-            token_positions = torch.arange(T)
+            token_positions = torch.arange(seq_len)
 
         cos = self.rope_cos.index_select(0, token_positions.reshape(-1)).view(*token_positions.shape, -1)
         sin = self.rope_sin.index_select(0, token_positions.reshape(-1)).view(*token_positions.shape, -1)
@@ -203,3 +203,45 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         attn = attn.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
 
         return einsum(attn, self.w_o, "... seq_len d_model, dd d_model -> ... seq_len dd")
+
+
+def transformer_block(
+    d_model: int,
+    num_heads: int,
+    d_ff: int,
+    max_seq_len: int,
+    theta: float,
+    weights: dict[str, Tensor],
+    in_features: Float[Tensor, " batch sequence_length d_model"],
+    state_prefix: str = ""
+):
+    ln1 = RMSNorm(d_model, 1e-5)
+    ln1.load_state_dict({"weights": weights[state_prefix + "ln1.weight"]})
+
+    d_k = d_model // num_heads
+    rope = RoPE(theta, d_k, max_seq_len)
+    attn = CausalMultiHeadSelfAttention(d_model, num_heads, rope)
+    attn.load_state_dict({
+        "w_q": weights[state_prefix + "attn.q_proj.weight"],
+        "w_k": weights[state_prefix + "attn.k_proj.weight"],
+        "w_v": weights[state_prefix + "attn.v_proj.weight"],
+        "w_o": weights[state_prefix + "attn.output_proj.weight"],
+    })
+
+    # The first part of the block
+    first = in_features + attn.forward(ln1.forward(in_features))
+
+    ln2 = RMSNorm(d_model, 1e-5)
+    ln2.load_state_dict({"weights": weights[state_prefix + "ln2.weight"]})
+    swiglu = SwiGLU(d_model, d_ff)
+    # If your state dict keys match, you can use `load_state_dict()`
+    swiglu.load_state_dict({
+        "w1": weights[state_prefix + "ffn.w1.weight"],
+        "w2": weights[state_prefix + "ffn.w2.weight"],
+        "w3": weights[state_prefix + "ffn.w3.weight"]
+    })
+
+    # The second part of the block
+    second = first + swiglu.forward(ln2.forward(first))
+
+    return second
