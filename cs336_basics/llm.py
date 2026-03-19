@@ -4,6 +4,8 @@ from einops import reduce, einsum, repeat
 from torch import Tensor
 import torch.nn as nn
 from jaxtyping import Bool, Float, Int
+from collections.abc import Callable, Iterable
+from typing import Optional
 
 
 class Linear(torch.nn.Module):
@@ -245,3 +247,39 @@ def transformer_block(
     second = first + swiglu.forward(ln2.forward(first))
 
     return second
+
+class AdamW(torch.optim.Optimizer):
+    def __init__(self, params, lr=1e-30, weight_decay=0.01, betas=(0.9, 0.999), eps=1e-8):
+        if lr < 0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        defaults = {"lr": lr, "betas": betas, "eps": eps, "weight_decay": weight_decay}
+        super().__init__(params, defaults)
+
+    def step(self, closure: Optional[Callable] = None):
+        loss = None if closure is None else closure()
+        m = None
+        v = None
+        for group in self.param_groups:
+            lr = group["lr"] # Get the learning rate.
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p] # Get state associated with p.
+                t = state.get("t", 1) # Get iteration number from the state, or initial value.
+                m = state.get("m", torch.zeros(p.data.shape))
+                v = state.get("v", torch.zeros(p.data.shape))
+                grad = p.grad.data # Get the gradient of loss with respect to p.
+
+                m = beta1 * m + (1 - beta1) * grad
+                v = beta2 * v + (1 - beta2) * grad * grad
+                state["m"] = m
+                state["v"] = v
+                lr_t = lr * math.sqrt(1 - pow(beta2, t)) / (1 - pow(beta1, t))
+
+                p.data -= lr_t * m / (v.sqrt() + eps) # Update weight tensor in-place.
+                p.data -= lr * weight_decay * p.data
+                state["t"] = t + 1 # Increment iteration number.
+                return loss
