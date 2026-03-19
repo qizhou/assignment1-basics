@@ -9,6 +9,7 @@ import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, transformer_block, AdamW
+from math import cos, pi
 
 def run_linear(
     d_in: int,
@@ -562,8 +563,12 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
 
+    if it < warmup_iters:
+        return it / warmup_iters * max_learning_rate
+    if it > cosine_cycle_iters:
+        return min_learning_rate
+    return min_learning_rate + 0.5 * (1 + cos((it - warmup_iters)/(cosine_cycle_iters - warmup_iters)*pi)) * (max_learning_rate - min_learning_rate)
 
 def run_save_checkpoint(
     model: torch.nn.Module,
