@@ -528,7 +528,13 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    raise NotImplementedError
+    l2 = torch.tensor([(p.grad * p.grad).sum() for p in parameters if p.grad is not None]).sum().sqrt()
+
+    if l2 > max_l2_norm:
+        for p in parameters:
+            if p.grad is None:
+                continue
+            p.grad *= (max_l2_norm / (l2 + 1e-6)) # in-place update
 
 
 def get_adamw_cls() -> Any:
