@@ -596,7 +596,10 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    mstate = model.state_dict()
+    optstate = optimizer.state_dict()
+    state = {"model": mstate, "optimizer": optstate, "iteration": iteration}
+    torch.save(state, out)
 
 
 def run_load_checkpoint(
@@ -617,7 +620,10 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    state = torch.load(src)
+    model.load_state_dict(state["model"])
+    optimizer.load_state_dict(state["optimizer"])
+    return state["iteration"]
 
 
 def get_tokenizer(
