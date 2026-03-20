@@ -51,8 +51,9 @@ def benchmark(description: str, run: Callable, num_warmups: int = 1, num_trials:
     mean_time = sum(times) / num_trials # @inspect mean_time
     return mean_time
 
-
-dim = 512  # @inspect dim
+device = "cpu"
+device = "mps"
+dim = 256  # @inspect dim
 num_layers = 4  # @inspect num_layers
 batch_size = 256  # @inspect batch_size
 num_steps = 2  # @inspect num_steps
@@ -60,3 +61,35 @@ mlp_base = benchmark("run_mlp", run_mlp(dim=dim, num_layers=num_layers, batch_si
 print(mlp_base)
 mlp_base = benchmark("run_mlp", run_mlp(dim=dim, num_layers=num_layers, batch_size=batch_size, num_steps=num_steps, device="mps"))
 print(mlp_base)
+
+step_results = []
+for scale in (2, 3, 4, 5):
+    result = benchmark(f"run_mlp({scale}x num_steps)",
+                        run_mlp(dim=dim, num_layers=num_layers,
+                            batch_size=batch_size, num_steps=scale * num_steps, device=device)) # @inspect result, @inspect scale, @inspect num_steps
+    step_results.append((scale, result))  # @inspect step_results
+print(step_results)
+
+layer_results = []
+for scale in (2, 3, 4, 5):
+    result = benchmark(f"run_mlp({scale}x num_layers)",
+                        run_mlp(dim=dim, num_layers=scale * num_layers,
+                            batch_size=batch_size, num_steps=num_steps, device=device)) # @inspect result, @inspect scale, @inspect num_layers, @inspect num_steps
+    layer_results.append((scale, result))  # @inspect layer_results
+print(layer_results)
+
+batch_results = []
+for scale in (2, 3, 4, 5):
+    result = benchmark(f"run_mlp({scale}x batch_size)",
+                        run_mlp(dim=dim, num_layers=num_layers,
+                            batch_size=scale * batch_size, num_steps=num_steps, device=device)) # @inspect result, @inspect scale, @inspect num_layers, @inspect num_steps
+    batch_results.append((scale, result))  # @inspect batch_results
+print(batch_results)
+
+dim_results = []
+for scale in (2, 3, 4, 5):
+    result = benchmark(f"run_mlp({scale}x dim)",
+                        run_mlp(dim=scale * dim, num_layers=num_layers,
+                            batch_size=batch_size, num_steps=num_steps, device=device)) # @inspect result, @inspect scale, @inspect num_layers, @inspect num_steps
+    dim_results.append((scale, result))  # @inspect dim_results
+print(dim_results)
