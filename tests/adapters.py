@@ -12,7 +12,7 @@ from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, sof
 from math import cos, pi
 from random import randrange
 
-import re
+import regex as re
 
 def run_linear(
     d_in: int,
@@ -686,11 +686,13 @@ def run_train_bpe(
 
     # convert docs into table as word => freq.
     PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    PAT = bytes(PAT, "ascii")
     table = {}
     for d in docs:
-        for w in re.finditer(PAT, d):
-            k = [tuple([bytes(c) for c in w])]
-            table[k] = table.get(k) + 1
+        matches = re.finditer(PAT, d)
+        for w in matches:
+            k = tuple([bytes([c]) for c in w.group()])
+            table[k] = table.get(k, 0) + 1
 
     # add all ascii
     vocab = {i: bytes([i]) for i in range(256)}
@@ -709,13 +711,14 @@ def run_train_bpe(
 
         largest_item = max(counter.items(), key=lambda item: (item[1], item[0]))
 
-        merges.append(tuple(largest_item[0][0], largest_item[0][1]))
+        merges.append(tuple([largest_item[0][0], largest_item[0][1]]))
 
         # merge
         # Q: suppose we have 'w','w','w', in counter, the pair 'w','w' should be one or two, but only merge once?
-        new_words = {}
+        new_table = {}
         replaced = largest_item[0][0] + largest_item[0][1]
-        for k,v in words.items():
+        vocab[len(vocab)] = replaced
+        for k,v in table.items():
             l = []
             i = 0
             while i < len(k):
@@ -725,6 +728,6 @@ def run_train_bpe(
                 else:
                     l.append(k[i])
                 i = i + 1
-            new_words[tuple(l)] = v
-        words = new_words
+            new_table[tuple(l)] = v
+        table = new_table
     return vocab, merges
