@@ -12,6 +12,8 @@ from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, sof
 from math import cos, pi
 from random import randrange
 
+import re
+
 def run_linear(
     d_in: int,
     d_out: int,
@@ -676,4 +678,53 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    raise NotImplementedError
+
+    # read all data and split into words
+    with open(input_path, "rb") as f:
+        s = f.read() # into bytes
+    docs = re.split(bytes("|".join(special_tokens), "ascii"), s)
+
+    # convert docs into table as word => freq.
+    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    table = {}
+    for d in docs:
+        for w in re.finditer(PAT, d):
+            k = [tuple([bytes(c) for c in w])]
+            table[k] = table.get(k) + 1
+
+    # add all ascii
+    vocab = {i: bytes([i]) for i in range(256)}
+
+    # add special tokens
+    vocab.update({i+256: bytes(special_tokens[i], "ascii") for i in range(len(special_tokens))})
+
+    merges = []
+
+    while len(vocab) < vocab_size:
+        # counter the pair with the highest frequency
+        counter = {}
+        for k,v in table.items():
+            for i in range(len(k)-1):
+                counter[k[i:i+2]] = counter.get(k[i:i+2], 0) + v
+
+        largest_item = max(counter.items(), key=lambda item: (item[1], item[0]))
+
+        merges.append(tuple(largest_item[0][0], largest_item[0][1]))
+
+        # merge
+        # Q: suppose we have 'w','w','w', in counter, the pair 'w','w' should be one or two, but only merge once?
+        new_words = {}
+        replaced = largest_item[0][0] + largest_item[0][1]
+        for k,v in words.items():
+            l = []
+            i = 0
+            while i < len(k):
+                if i < len(k)+1 and k[i:i+2] == largest_item[0]:
+                    l.append(replaced)
+                    i = i + 1
+                else:
+                    l.append(k[i])
+                i = i + 1
+            new_words[tuple(l)] = v
+        words = new_words
+    return vocab, merges
