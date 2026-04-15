@@ -181,9 +181,13 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         # in_features "batch seq_len d_in=d_model"
         batch, seq_len, _ = in_features.shape
         # q,k,v "batch seq_len d_model"
+        # FLOPS: 3 * 2 * B * T * D or
+        # 2 * B * T * D (Q) + B * S * D (K, V), where S is the K, V sequenced, and T is the query sequence
+        # with prevous K, V's are cached.
+        # E.g., if K, V are cached, generating one token (T = 1, B = 1) is 2 * D
         q = einsum(in_features, self.w_q, "... seq_len d_model, dd d_model -> ... seq_len dd")
         k = einsum(in_features, self.w_k, "... seq_len d_model, dd d_model -> ... seq_len dd")
-        v = einsum(in_features, self.w_v, "... seq_len d_model, dd d_model -> ... seq_len dd")
+        v = einsum(in_features, self.w_v, "... seq_len d_model, dv d_model -> ... seq_len dv")
 
         # Reshape into heads: "batch, num_heads, seq_len, d_k"
         q = q.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
@@ -199,11 +203,14 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         full_mask = mask.unsqueeze(0).unsqueeze(0)
 
         # attn "batch, num_heads, seq_len, d_k"
+        # FLOPS: Q * K = 2 * B * T * S * D
+        # FLOPS: s(.) * V = 2 * B * S * T * N
         attn = scaled_dot_product_attention(q, k, v, full_mask)
 
         # attn "batch, seq_len, num_heads, d_k" => "batch, seq_len, d_model"
         attn = attn.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
 
+        # FLOPS: 2 * B * T * K * H
         return einsum(attn, self.w_o, "... seq_len d_model, dd d_model -> ... seq_len dd")
 
 
