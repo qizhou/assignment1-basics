@@ -13,6 +13,7 @@ from math import cos, pi
 from random import randrange
 
 import regex as re
+from cs336_basics.tokenizer import merge_once
 
 def run_linear(
     d_in: int,
@@ -700,34 +701,10 @@ def run_train_bpe(
     # add special tokens
     vocab.update({i+256: bytes(special_tokens[i], "ascii") for i in range(len(special_tokens))})
 
+    # merge pair-wise tokens with highest frequency
     merges = []
-
     while len(vocab) < vocab_size:
-        # counter the pair with the highest frequency
-        counter = {}
-        for k,v in table.items():
-            for i in range(len(k)-1):
-                counter[k[i:i+2]] = counter.get(k[i:i+2], 0) + v
-
-        largest_item = max(counter.items(), key=lambda item: (item[1], item[0]))
-
-        merges.append(tuple([largest_item[0][0], largest_item[0][1]]))
-
-        # merge
-        # Q: suppose we have 'w','w','w', in counter, the pair 'w','w' should be one or two, but only merge once?
-        new_table = {}
-        replaced = largest_item[0][0] + largest_item[0][1]
-        vocab[len(vocab)] = replaced
-        for k,v in table.items():
-            l = []
-            i = 0
-            while i < len(k):
-                if i < len(k)+1 and k[i:i+2] == largest_item[0]:
-                    l.append(replaced)
-                    i = i + 1
-                else:
-                    l.append(k[i])
-                i = i + 1
-            new_table[tuple(l)] = v
-        table = new_table
+        merged_token, table = merge_once(table)
+        merges.append(merged_token[0])
+        vocab[len(vocab)] = merged_token[0][0] + merged_token[0][1]
     return vocab, merges

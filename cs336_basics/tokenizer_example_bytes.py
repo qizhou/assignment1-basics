@@ -1,5 +1,5 @@
 import regex as re
-from tokenizer import merge
+from tokenizer import merge_once
 
 text = b"""low low low low low lower lower widest widest widest newest newest newest newest newest newest"""
 
@@ -15,7 +15,7 @@ for w in matches:
 print(table)
 
 for i in range(6):
-    merged_item, table = merge(table)
+    merged_item, table = merge_once(table)
     print(merged_item[0], table)
 
 
