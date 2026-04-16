@@ -13,7 +13,7 @@ from math import cos, pi
 from random import randrange
 
 import regex as re
-from cs336_basics.tokenizer import merge_once
+from cs336_basics.tokenizer import merge_once, merge
 
 def run_linear(
     d_in: int,
@@ -702,9 +702,12 @@ def run_train_bpe(
     vocab.update({i+256: bytes(special_tokens[i], "ascii") for i in range(len(special_tokens))})
 
     # merge pair-wise tokens with highest frequency
-    merges = []
-    while len(vocab) < vocab_size:
-        merged_token, table = merge_once(table)
-        merges.append(merged_token[0])
-        vocab[len(vocab)] = merged_token[0][0] + merged_token[0][1]
+    # merges = []
+    # while len(vocab) < vocab_size:
+    #     merged_token, table = merge_once(table)
+    #     merges.append(merged_token[0])
+    #     vocab[len(vocab)] = merged_token[0][0] + merged_token[0][1]
+    merges = merge(table, vocab_size-len(vocab))
+    for m in merges:
+        vocab[len(vocab)] = m[0] + m[1]
     return vocab, merges

@@ -40,3 +40,63 @@ def merge_once(
             i = i + 1
         new_table[tuple(l)] = v
     return largest_item, new_table
+
+
+def merge(
+    table: dict[tuple[str, ...], int] | dict[tuple[bytes, ...], int],
+    times: int
+):
+    # counter the pair with the higest frequency
+    counter = {}
+    rev_counter = {}
+
+    # convert table to list
+    table = [(k, v) for k, v in table.items()]
+    for j in range(len(table)):
+        k, v = table[j]
+        for i in range(len(k)-1):
+            counter[k[i:i+2]] = counter.get(k[i:i+2], 0) + v
+            if k[i:i+2] not in rev_counter:
+                rev_counter[k[i:i+2]] = set()
+            rev_counter[k[i:i+2]].add(j)
+
+    merges = []
+    for _ in range(times):
+        largest_item = max(counter.items(), key=lambda item: (item[1], item[0]))
+        merges.append(largest_item[0])
+
+        idx = rev_counter[largest_item[0]]
+
+        # merge
+        # Q: suppose we have 'w','w','w', in counter, the pair 'w','w' has 2, but only merge once?
+        replaced = largest_item[0][0] + largest_item[0][1]
+        for j in set(idx):
+            k, v = table[j]
+            i = 0
+            l = []
+            while i < len(k):
+                if i < len(k)+1 and k[i:i+2] == largest_item[0]:
+                    l.append(replaced)
+                    i = i + 1
+                else:
+                    l.append(k[i])
+                i = i + 1
+            new_k = tuple(l)
+
+            # update the table entry
+            table[j] = (new_k, v)
+
+            # update counters
+            for i in range(len(k)-1):
+                counter[k[i:i+2]] -= v
+                rev_counter[k[i:i+2]].discard(j)  # may remove twice
+            for i in range(len(new_k)-1):
+                counter[new_k[i:i+2]] = counter.get(new_k[i:i+2], 0) + v
+                if new_k[i:i+2] not in rev_counter:
+                    rev_counter[new_k[i:i+2]] = set()
+                rev_counter[new_k[i:i+2]].add(j)
+    new_table = {}
+    for k, v in table:
+        new_table[k] = v
+
+    return merges

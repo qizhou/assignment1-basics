@@ -1,4 +1,4 @@
-from tokenizer import merge_once
+from tokenizer import merge_once, merge
 
 text = """low low low low low
 lower lower widest widest widest
@@ -11,3 +11,6 @@ table = {tuple(k): v for k,v in freqs.items()}
 for i in range(6):
     merged_item, table = merge_once(table)
     print(merged_item[0], table)
+
+table = {tuple(k): v for k,v in freqs.items()}
+print(merge(table, 6))
