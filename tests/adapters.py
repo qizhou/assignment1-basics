@@ -707,6 +707,7 @@ def run_train_bpe(
     #     merged_token, table = merge_once(table)
     #     merges.append(merged_token[0])
     #     vocab[len(vocab)] = merged_token[0][0] + merged_token[0][1]
+    # in test_train_bpe_speed, this reduces the time from 1.76s to 0.18s
     merges = merge(table, vocab_size-len(vocab))
     for m in merges:
         vocab[len(vocab)] = m[0] + m[1]
