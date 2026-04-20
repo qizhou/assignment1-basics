@@ -13,8 +13,7 @@ from math import cos, pi
 from random import randrange
 
 import regex as re
-from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries, Tokenizer
-from multiprocessing import Process, Queue
+from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries, Tokenizer, train_tokenizer
 
 
 def run_linear(
@@ -654,22 +653,6 @@ def get_tokenizer(
     return Tokenizer(vocab, merges, special_tokens)
 
 
-def convert(q, s, special_tokens):
-    # convert docs into table as word => freq.
-    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-    PAT = bytes(PAT, "ascii")
-
-    docs = re.split(bytes("|".join(special_tokens), "ascii"), s)
-
-    table = {}
-    for d in docs:
-        matches = re.finditer(PAT, d)
-        for w in matches:
-            k = tuple([bytes([c]) for c in w.group()])
-            table[k] = table.get(k, 0) + 1
-    q.put(table)
-
-
 def run_train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
@@ -698,52 +681,4 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
 
-    # read all data and split into words
-    # with open(input_path, "rb") as f:
-    #     s = f.read() # into bytes
-
-    # the init stage of multiprocessing on mac is quite slow:
-    # - for test_train_bpe_speed, the time is increased from 0.18s to 1.03s
-    p_list = []
-    q = Queue()
-    with open(input_path, "rb") as f:
-        num_processes = 6
-        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
-
-        # The following is a serial implementation, but you can parallelize this
-        # by sending each start/end pair to a set of processes.
-        for start, end in zip(boundaries[:-1], boundaries[1:]):
-            f.seek(start)
-            chunk = f.read(end - start)
-            p_list.append(Process(target=convert, args=(q, chunk, special_tokens)))
-            p_list[-1].start()
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
-
-    # merge all sub tables
-    table = {}
-    for p in p_list:
-        sub_table = q.get()
-        for k, v in sub_table.items():
-            table[k] = table.get(k, 0) + v
-
-    for p in p_list:
-        p.join()
-
-
-    # add all ascii
-    vocab = {i: bytes([i]) for i in range(256)}
-
-    # add special tokens
-    vocab.update({i+256: bytes(special_tokens[i], "ascii") for i in range(len(special_tokens))})
-
-    # merge pair-wise tokens with highest frequency
-    # merges = []
-    # while len(vocab) < vocab_size:
-    #     merged_token, table = merge_once(table)
-    #     merges.append(merged_token[0])
-    #     vocab[len(vocab)] = merged_token[0][0] + merged_token[0][1]
-    # in test_train_bpe_speed, this reduces the time from 1.76s to 0.18s
-    merges = merge(table, vocab_size-len(vocab))
-    for m in merges:
-        vocab[len(vocab)] = m[0] + m[1]
-    return vocab, merges
+    return train_tokenizer(input_path, vocab_size, special_tokens, **kwargs)

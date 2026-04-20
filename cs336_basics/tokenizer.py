@@ -1,5 +1,5 @@
 import regex as re
-PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+PAT = bytes(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""", "ascii")
 
 import os
 from typing import BinaryIO
@@ -7,6 +7,12 @@ from typing import BinaryIO
 from collections.abc import Iterable, Iterator
 
 import json
+import pickle
+
+from multiprocessing import Process, Queue
+import pathlib
+
+DATA_PATH = (pathlib.Path(__file__).resolve().parent.parent) / "data"
 
 def find_chunk_boundaries(
     file: BinaryIO,
@@ -188,7 +194,7 @@ class Tokenizer:
                     yield self.special_tokens_map[d]
                     continue
 
-                matches = re.finditer(bytes(PAT, "utf-8"), d)
+                matches = re.finditer(PAT, d)
                 for w in matches:
                     # split and merge the tokens
                     ts = []
@@ -227,3 +233,114 @@ class Tokenizer:
         for id in ids:
             bs.extend(self.vocab[id])
         return bs.decode("utf-8", errors="replace")
+
+
+def convert(q, s, special_tokens):
+    # convert docs into table as word => freq.
+    docs = re.split(bytes("|".join(special_tokens), "ascii"), s)
+
+    table = {}
+    for d in docs:
+        matches = re.finditer(PAT, d)
+        for w in matches:
+            k = tuple([bytes([c]) for c in w.group()])
+            table[k] = table.get(k, 0) + 1
+    q.put(table)
+
+
+def train_tokenizer(input_path: str | os.PathLike,
+    vocab_size: int,
+    special_tokens: list[str],
+    nproc: int = None,
+) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    """Given the path to an input corpus, run train a BPE tokenizer and
+    output its vocabulary and merges.
+
+    Args:
+        input_path (str | os.PathLike): Path to BPE tokenizer training data.
+        vocab_size (int): Total number of items in the tokenizer's vocabulary (including special tokens).
+        special_tokens (list[str]): A list of string special tokens to be added to the tokenizer vocabulary.
+            These strings will never be split into multiple tokens, and will always be
+            kept as a single token. If these special tokens occur in the `input_path`,
+            they are treated as any other string.
+
+    Returns:
+        tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+            vocab:
+                The trained tokenizer vocabulary, a mapping from int (token ID in the vocabulary)
+                to bytes (token bytes)
+            merges:
+                BPE merges. Each list item is a tuple of bytes (<token1>, <token2>),
+                representing that <token1> was merged with <token2>.
+                Merges are ordered by order of creation.
+    """
+    # read all data and split into words
+    # with open(input_path, "rb") as f:
+    #     s = f.read() # into bytes
+
+    # the init stage of multiprocessing on mac is quite slow:
+    # - for test_train_bpe_speed, the time is increased from 0.18s to 1.03s
+    p_list = []
+    q = Queue()
+    with open(input_path, "rb") as f:
+        num_processes = nproc if nproc is not None else 6
+        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+
+        # The following is a serial implementation, but you can parallelize this
+        # by sending each start/end pair to a set of processes.
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            f.seek(start)
+            chunk = f.read(end - start)
+            p_list.append(Process(target=convert, args=(q, chunk, special_tokens)))
+            p_list[-1].start()
+        # Run pre-tokenization on your chunk and store the counts for each pre-token
+
+    # merge all sub tables
+    table = {}
+    for p in p_list:
+        sub_table = q.get()
+        for k, v in sub_table.items():
+            table[k] = table.get(k, 0) + v
+
+    for p in p_list:
+        p.join()
+
+
+    # add all ascii
+    vocab = {i: bytes([i]) for i in range(256)}
+
+    # add special tokens
+    vocab.update({i+256: bytes(special_tokens[i], "ascii") for i in range(len(special_tokens))})
+
+    # merge pair-wise tokens with highest frequency
+    # merges = []
+    # while len(vocab) < vocab_size:
+    #     merged_token, table = merge_once(table)
+    #     merges.append(merged_token[0])
+    #     vocab[len(vocab)] = merged_token[0][0] + merged_token[0][1]
+    # in test_train_bpe_speed, this reduces the time from 1.76s to 0.18s
+    merges = merge(table, vocab_size-len(vocab))
+    for m in merges:
+        vocab[len(vocab)] = m[0] + m[1]
+    return vocab, merges
+
+
+if __name__ == "__main__":
+    # train tokenizer based on TinyStores and OpenWebText
+    # datafile = "TinyStoriesV2-GPT4-train.txt"
+    datafile = "owt_train.txt"
+    input_path = DATA_PATH / datafile
+    vocab, merges = train_tokenizer(
+        input_path=input_path,
+        vocab_size=10000,
+        special_tokens=["<|endoftext|>"],
+    )
+
+    vocab_path = DATA_PATH / (datafile + ".vocab.json")
+    merges_path = DATA_PATH / (datafile + ".merge.json")
+
+    with open(vocab_path, "wb") as vocab_f:
+        pickle.dump(vocab, vocab_f)
+
+    with open(merges_path, "wb") as f:
+        pickle.dump(merges, f)
