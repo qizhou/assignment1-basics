@@ -13,7 +13,7 @@ from math import cos, pi
 from random import randrange
 
 import regex as re
-from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries
+from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries, Tokenizer
 from multiprocessing import Process, Queue
 
 
@@ -651,7 +651,7 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    return Tokenizer(vocab, merges, special_tokens)
 
 
 def convert(q, s, special_tokens):

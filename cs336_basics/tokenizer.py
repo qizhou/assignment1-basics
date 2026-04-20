@@ -4,6 +4,9 @@ PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s
 import os
 from typing import BinaryIO
 
+from collections.abc import Iterable, Iterator
+
+import json
 
 def find_chunk_boundaries(
     file: BinaryIO,
@@ -146,3 +149,55 @@ def merge(
                 rev_counter[new_k[i:i+2]].add(j)
 
     return merges
+
+
+class Tokenizer:
+    def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
+        self.vocab = vocab
+        self.rev_vocab = {v: k for k, v in vocab.items()}
+        self.merges = merges
+        self.special_tokens = special_tokens
+
+    def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
+        with open(vocab_filepath, "r") as f:
+            vocab = json.load(f)
+        with open(merges_filepath, "r") as f:
+            merges = json.load(f)
+        return Tokenizer(vocab, merges, special_tokens)
+
+    def encode(self, text: str) -> list[int]:
+        return [x for x in self.encode_iterable([text])]
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        for s in iterable:
+            bs = s.encode("utf-8")
+
+            docs = [bs]
+            if self.special_tokens is not None:
+                # check special tokens
+                docs = re.split(bytes("|".join(self.special_tokens), "ascii"), bs)
+
+            for d in docs:
+                matches = re.finditer(bytes(PAT, "utf-8"), d)
+                for w in matches:
+                    pending = None
+                    for c in w.group():
+                        if pending is None:
+                            pending = self.rev_vocab[bytes([c])]
+                        else:
+                            key = (self.vocab[pending], c)
+                            # check if merge can be done
+                            try:
+                                # find merge
+                                pending = self.merges.index(key)
+                            except ValueError:
+                                # not found
+                                yield pending
+                                pending = c
+                    yield pending
+
+    def decode(self, ids: list[int]) -> str:
+        bs = bytearray()
+        for id in ids:
+            bs.extend(self.vocab[id])
+        return bs.decode("utf-8", errors="replace")
