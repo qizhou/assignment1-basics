@@ -156,10 +156,11 @@ class Tokenizer:
         self.vocab = vocab
         self.rev_vocab = {v: k for k, v in vocab.items()}
         self.merges = merges
-        self.special_tokens = special_tokens
-        if special_tokens is not None:
-            self.special_tokens_map = {bytes(t, "utf-8"): self.rev_vocab[bytes(t, "utf-8")] for t in special_tokens}
-            self.special_tokens_escaped = [re.escape(bytes(t, "utf-8")) for t in special_tokens]
+        if special_tokens is None:
+            special_tokens = []
+        self.special_tokens = sorted(special_tokens, key=lambda x: (-len(x),x)) # sort the tokens so that we will match longest first
+        self.special_tokens_map = {bytes(t, "utf-8"): self.rev_vocab[bytes(t, "utf-8")] for t in self.special_tokens}
+        self.special_tokens_escaped = [re.escape(bytes(t, "utf-8")) for t in self.special_tokens]
 
     def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
         with open(vocab_filepath, "r") as f:
@@ -176,13 +177,13 @@ class Tokenizer:
             bs = s.encode("utf-8")
 
             docs = [bs]
-            if self.special_tokens is not None:
+            if len(self.special_tokens) != 0:
                 # check special tokens
                 docs = re.split(b"("+b"|".join((self.special_tokens_escaped))+b")", bs)
 
             for d in docs:
                 # if it is special token, return directly
-                if self.special_tokens is not None and d in self.special_tokens_map:
+                if d in self.special_tokens_map:
                     yield self.special_tokens_map[d]
                     continue
 
