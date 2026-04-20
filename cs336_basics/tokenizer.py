@@ -11,6 +11,7 @@ import pickle
 
 from multiprocessing import Process, Queue
 import pathlib
+import numpy
 
 DATA_PATH = (pathlib.Path(__file__).resolve().parent.parent) / "data"
 
@@ -325,10 +326,25 @@ def train_tokenizer(input_path: str | os.PathLike,
     return vocab, merges
 
 
-if __name__ == "__main__":
-    # train tokenizer based on TinyStores and OpenWebText
-    # datafile = "TinyStoriesV2-GPT4-train.txt"
-    datafile = "owt_train.txt"
+def encode_file(datafile, inputfile=None):
+    inputfile = DATA_PATH / inputfile if inputfile is not None else DATA_PATH / datafile
+    vocab_path = DATA_PATH / (datafile + ".vocab")
+    merges_path = DATA_PATH / (datafile + ".merge")
+    output_path = DATA_PATH / (datafile + ".npy")
+
+    with open(vocab_path, "rb") as f:
+        vocab = pickle.load(f)
+    with open(merges_path, "rb") as f:
+        merges = pickle.load(f)
+    with open(inputfile, "r") as f:
+        data = f.read()
+    tokenizer = Tokenizer(vocab, merges, ["<|endoftext|>"])
+    ids = tokenizer.encode(data)
+    arr = numpy.array(ids, dtype=numpy.uint16)
+    numpy.save(output_path, arr)
+
+
+def tokenize_file(datafile):
     input_path = DATA_PATH / datafile
     vocab, merges = train_tokenizer(
         input_path=input_path,
@@ -336,11 +352,19 @@ if __name__ == "__main__":
         special_tokens=["<|endoftext|>"],
     )
 
-    vocab_path = DATA_PATH / (datafile + ".vocab.json")
-    merges_path = DATA_PATH / (datafile + ".merge.json")
+    vocab_path = DATA_PATH / (datafile + ".vocab")
+    merges_path = DATA_PATH / (datafile + ".merge")
 
     with open(vocab_path, "wb") as vocab_f:
         pickle.dump(vocab, vocab_f)
 
     with open(merges_path, "wb") as f:
         pickle.dump(merges, f)
+
+if __name__ == "__main__":
+    # train tokenizer based on TinyStores and OpenWebText
+    datafile = "TinyStoriesV2-GPT4-train.txt"
+    # datafile = "owt_train.txt"
+    # tokenize_file(datafile)
+    # encode_file(datafile, inputfile="TinyStoriesV2-GPT4-valid.txt")
+    encode_file(datafile)
