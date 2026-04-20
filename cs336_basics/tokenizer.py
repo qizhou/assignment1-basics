@@ -180,20 +180,21 @@ class Tokenizer:
             for d in docs:
                 matches = re.finditer(bytes(PAT, "utf-8"), d)
                 for w in matches:
-                    pending = None
+                    pending: int | None = None
                     for c in w.group():
                         if pending is None:
+                            # lookup the id of the token
                             pending = self.rev_vocab[bytes([c])]
                         else:
-                            key = (self.vocab[pending], c)
+                            key = (self.vocab[pending], bytes([c]))
                             # check if merge can be done
                             try:
-                                # find merge
-                                pending = self.merges.index(key)
+                                # find merge, note that id = merge_idx + 256
+                                pending = self.merges.index(key) + 256
                             except ValueError:
                                 # not found
                                 yield pending
-                                pending = c
+                                pending = self.rev_vocab[bytes([c])]
                     yield pending
 
     def decode(self, ids: list[int]) -> str:
