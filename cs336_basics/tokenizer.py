@@ -156,6 +156,7 @@ class Tokenizer:
         self.vocab = vocab
         self.rev_vocab = {v: k for k, v in vocab.items()}
         self.merges = merges
+        self.rev_merges = {merges[i]: i for i in range(len(merges))}
         if special_tokens is None:
             special_tokens = []
         self.special_tokens = sorted(special_tokens, key=lambda x: (-len(x),x)) # sort the tokens so that we will match longest first
@@ -195,14 +196,28 @@ class Tokenizer:
                         ts.append(bytes([c]))
 
                     # apply merges one by one
-                    for m in self.merges:
-                        i = 0
-                        while i<len(ts)-1:
-                            if m == (ts[i], ts[i+1]):
-                                ts[i] = ts[i]+ts[i+1]
-                                del ts[i+1]
-                            else:
-                                i += 1
+                    # slow version
+                    # for m in self.merges:
+                    #     i = 0
+                    #     while i<len(ts)-1:
+                    #         if m == (ts[i], ts[i+1]):
+                    #             ts[i] = ts[i]+ts[i+1]
+                    #             del ts[i+1]
+                    #         else:
+                    #             i += 1
+                    # faster version: reduce the time from 12s to 3s
+                    while True:
+                        min_merge = None
+                        for i in range(len(ts)-1):
+                            merge_key = (ts[i], ts[i+1])
+                            merge_idx = self.rev_merges.get(merge_key, None)
+                            if merge_idx is not None and (min_merge is None or merge_idx < min_merge):
+                                min_merge = merge_idx
+                                min_merge_pos = i
+                        if min_merge is None:
+                            break
+                        ts[min_merge_pos] = self.merges[min_merge][0] + self.merges[min_merge][1]
+                        del ts[min_merge_pos+1]
 
                     for t in ts:
                         yield self.rev_vocab[t]
