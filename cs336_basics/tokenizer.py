@@ -330,17 +330,17 @@ def train_tokenizer(input_path: str | os.PathLike,
     return vocab, merges
 
 
-def encode_file(datafile, inputfile=None):
-    inputfile = DATA_PATH / inputfile if inputfile is not None else DATA_PATH / datafile
+def encode_file(datafile, inputfile=None, outputfile=None):
+    input_path = DATA_PATH / inputfile if inputfile is not None else DATA_PATH / datafile
     vocab_path = DATA_PATH / (datafile + ".vocab")
     merges_path = DATA_PATH / (datafile + ".merge")
-    output_path = DATA_PATH / (datafile + ".npy")
+    output_path = DATA_PATH / outputfile if outputfile is not None else DATA_PATH / (datafile + ".npy")
 
     with open(vocab_path, "rb") as f:
         vocab = pickle.load(f)
     with open(merges_path, "rb") as f:
         merges = pickle.load(f)
-    with open(inputfile, "r") as f:
+    with open(input_path, "r") as f:
         data = f.read()
     tokenizer = Tokenizer(vocab, merges, ["<|endoftext|>"])
     ids = tokenizer.encode(data)
@@ -348,11 +348,11 @@ def encode_file(datafile, inputfile=None):
     numpy.save(output_path, arr)
 
 
-def tokenize_file(datafile):
+def tokenize_file(datafile, vocab_size=10000):
     input_path = DATA_PATH / datafile
     vocab, merges = train_tokenizer(
         input_path=input_path,
-        vocab_size=10000,
+        vocab_size=vocab_size,
         special_tokens=["<|endoftext|>"],
     )
 
@@ -375,8 +375,10 @@ def get_batch(dataset: npt.NDArray, batch_size: int, context_length: int, device
 
 if __name__ == "__main__":
     # train tokenizer based on TinyStores and OpenWebText
-    datafile = "TinyStoriesV2-GPT4-train.txt"
-    # datafile = "owt_train.txt"
-    # tokenize_file(datafile)
-    # encode_file(datafile, inputfile="TinyStoriesV2-GPT4-valid.txt")
-    encode_file(datafile)
+    # datafile = "TinyStoriesV2-GPT4-train.txt"
+    # vocab_size = 10000
+    datafile = "owt_train.txt"
+    vocab_size = 32000
+    tokenize_file(datafile)
+    # encode_file(datafile, inputfile="TinyStoriesV2-GPT4-valid.txt", outputfile="TinyStoriesV2-GPT4-valid.txt.npy")
+    # encode_file(datafile)
