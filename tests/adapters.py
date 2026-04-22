@@ -425,7 +425,7 @@ def run_rmsnorm(
 
     rmsnorm = RMSNorm(d_model, eps)
 
-    rmsnorm.load_state_dict({"weights": weights})
+    rmsnorm.load_state_dict({"weight": weights})
 
     return rmsnorm.forward(in_features)
 
