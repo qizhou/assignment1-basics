@@ -8,10 +8,9 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock
+from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock, calc_cross_entropy
 from cs336_basics.tokenizer import get_batch
 from math import cos, pi
-from random import randrange
 
 from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries, Tokenizer, train_tokenizer
 
@@ -499,22 +498,7 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    batch_size, vocab_size = inputs.shape
-
-    # Subtract max value
-    repeat_vec = [1, 1]
-    repeat_vec[1] = vocab_size
-    max_v, _ = inputs.max(1, keepdim=True)
-    max_v = max_v.repeat(*repeat_vec)
-
-    # Calculate exp and the sum
-    ev = (inputs - max_v).exp()
-    sum_ev = ev.sum(1, keepdim=True)
-    sum_ev = sum_ev.repeat(*repeat_vec)
-
-    neg_log_prob = -(inputs-max_v) + sum_ev.log()
-
-    return (neg_log_prob[torch.arange(batch_size), targets]).mean()
+    return calc_cross_entropy(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:

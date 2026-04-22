@@ -363,3 +363,22 @@ class AdamW(torch.optim.Optimizer):
                 p.data -= lr * weight_decay * p.data
                 state["t"] = t + 1 # Increment iteration number.
                 return loss
+
+
+def calc_cross_entropy(inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]):
+    batch_size, vocab_size = inputs.shape
+
+    # Subtract max value
+    repeat_vec = [1, 1]
+    repeat_vec[1] = vocab_size
+    max_v, _ = inputs.max(1, keepdim=True)
+    max_v = max_v.repeat(*repeat_vec)
+
+    # Calculate exp and the sum
+    ev = (inputs - max_v).exp()
+    sum_ev = ev.sum(1, keepdim=True)
+    sum_ev = sum_ev.repeat(*repeat_vec)
+
+    neg_log_prob = -(inputs-max_v) + sum_ev.log()
+
+    return (neg_log_prob[torch.arange(batch_size), targets]).mean()
