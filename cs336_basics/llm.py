@@ -11,23 +11,23 @@ from typing import Optional
 class Linear(torch.nn.Module):
     def __init__(self, in_features: int, out_features: int, device=None, dtype=None):
         super(Linear, self).__init__()
-        self.W = torch.nn.Parameter(torch.zeros(out_features, in_features, device=device, dtype=dtype))
+        self.weight = torch.nn.Parameter(torch.zeros(out_features, in_features, device=device, dtype=dtype))
         std = math.sqrt(2/(in_features+out_features))
-        torch.nn.init.trunc_normal_(self.W, 0, std, -3 * std, 3 * std)
+        torch.nn.init.trunc_normal_(self.weight, 0, std, -3 * std, 3 * std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return einsum(self.W, x, "d_out d_in, ... d_in -> ... d_out")
+        return einsum(self.weight, x, "d_out d_in, ... d_in -> ... d_out")
 
 
 class Embedding(torch.nn.Module):
     def __init__(self, num_embeddings, embedding_dim, device=None, dtype=None):
         super(Embedding, self).__init__()
-        self.W = torch.nn.Parameter(torch.zeros(num_embeddings, embedding_dim))
+        self.weight = torch.nn.Parameter(torch.zeros(num_embeddings, embedding_dim))
         std = 1
-        torch.nn.init.trunc_normal_(self.W, 0, std, -3 * std, 3 * std)
+        torch.nn.init.trunc_normal_(self.weight, 0, std, -3 * std, 3 * std)
 
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
-        return self.W[token_ids]
+        return self.weight[token_ids]
 
 
 class RMSNorm(torch.nn.Module):
@@ -75,9 +75,9 @@ class SwiGLU(torch.nn.Module):
         # self.w1 = torch.nn.Parameter(torch.zeros(d_ff, d_model))
         # self.w2 = torch.nn.Parameter(torch.zeros(d_model, d_ff))
         # self.w3 = torch.nn.Parameter(torch.zeros(d_ff, d_model))
-        self.w1 = nn.Linear(d_model, d_ff, bias=False, device=device)
-        self.w2 = nn.Linear(d_ff, d_model, bias=False, device=device)
-        self.w3 = nn.Linear(d_model, d_ff, bias=False, device=device)
+        self.w1 = Linear(d_model, d_ff, device=device)
+        self.w2 = Linear(d_ff, d_model, device=device)
+        self.w3 = Linear(d_model, d_ff, device=device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # # x is ... d_model
@@ -303,7 +303,7 @@ class TransformerLM(nn.Module):
         rope_theta: float,
     ):
         super().__init__()
-        self.token_embeddings = nn.Embedding(vocab_size, d_model)
+        self.token_embeddings = Embedding(vocab_size, d_model)
         self.layers = nn.ModuleList([
             TransformerBlock(
                 d_model=d_model,
@@ -315,7 +315,7 @@ class TransformerLM(nn.Module):
             for _ in range(num_layers)
         ])
         self.ln_final = RMSNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+        self.lm_head = Linear(d_model, vocab_size)
 
     def forward(self, in_indices: torch.Tensor) -> torch.Tensor:
         x = self.token_embeddings(in_indices)   # (B, T, d_model)

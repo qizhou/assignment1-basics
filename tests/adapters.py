@@ -35,7 +35,7 @@ def run_linear(
     """
 
     l = Linear(d_in, d_out)
-    l.load_state_dict({"W": weights})
+    l.load_state_dict({"weight": weights})
     return l.forward(in_features)
 
 def run_embedding(
@@ -58,7 +58,7 @@ def run_embedding(
     """
 
     l = Embedding(vocab_size, d_model)
-    l.load_state_dict({"W": weights})
+    l.load_state_dict({"weight": weights})
     return l.forward(token_ids)
 
 
