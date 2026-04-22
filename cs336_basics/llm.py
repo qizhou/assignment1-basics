@@ -393,3 +393,13 @@ def get_lr_cosine_schedule(it: int,
     if it > cosine_cycle_iters:
         return min_learning_rate
     return min_learning_rate + 0.5 * (1 + cos((it - warmup_iters)/(cosine_cycle_iters - warmup_iters)*pi)) * (max_learning_rate - min_learning_rate)
+
+
+def clip_gradient(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
+    l2 = torch.tensor([(p.grad * p.grad).sum() for p in parameters if p.grad is not None]).sum().sqrt()
+
+    if l2 > max_l2_norm:
+        for p in parameters:
+            if p.grad is None:
+                continue
+            p.grad *= (max_l2_norm / (l2 + 1e-6)) # in-place update

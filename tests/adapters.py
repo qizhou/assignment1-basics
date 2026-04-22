@@ -8,7 +8,7 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock, calc_cross_entropy, get_lr_cosine_schedule
+from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock, calc_cross_entropy, get_lr_cosine_schedule, clip_gradient
 from cs336_basics.tokenizer import get_batch
 
 from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries, Tokenizer, train_tokenizer
@@ -509,13 +509,7 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    l2 = torch.tensor([(p.grad * p.grad).sum() for p in parameters if p.grad is not None]).sum().sqrt()
-
-    if l2 > max_l2_norm:
-        for p in parameters:
-            if p.grad is None:
-                continue
-            p.grad *= (max_l2_norm / (l2 + 1e-6)) # in-place update
+    return clip_gradient(parameters, max_l2_norm)
 
 
 def get_adamw_cls() -> Any:

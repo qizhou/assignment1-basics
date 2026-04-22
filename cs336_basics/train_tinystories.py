@@ -1,7 +1,7 @@
 # Train tinystories
 
 from tokenizer import DATA_PATH, get_batch
-from llm import AdamW, TransformerLM, calc_cross_entropy, get_lr_cosine_schedule
+from llm import AdamW, TransformerLM, calc_cross_entropy, get_lr_cosine_schedule, clip_gradient
 import numpy as np
 
 vocab_size = 10000
@@ -21,7 +21,7 @@ device = "mps"
 
 max_lr = 3e-4
 min_lr = 3e-5          # 10% of max
-warmup_steps = 1000
+warmup_steps = 500
 post_annealing_steps = 500
 
 tokens = np.load(datafile)
@@ -37,13 +37,15 @@ for step in range(max_steps):
     # reshape target_ids from [batch, seq_len] to [batch * seq_len]
     loss = calc_cross_entropy(logits.reshape(-1, logits.size(-1)), target_ids.reshape(-1))
 
-    lr = get_lr_cosine_schedule(step, max_lr, min_lr, warmup_steps, max_steps-post_annealing_steps)
+    lr = get_lr_cosine_schedule(step+1, max_lr, min_lr, warmup_steps, max_steps-post_annealing_steps)
     for g in optimizer.param_groups:
         g["lr"] = lr
 
-    print(loss, lr)
+    print(step, loss, lr)
 
     loss.backward()
+
+    clip_gradient(transformer.parameters(), 1.0)
     optimizer.step()
     optimizer.zero_grad()
 
