@@ -8,7 +8,7 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, transformer_block, AdamW
+from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock
 from math import cos, pi
 from random import randrange
 
@@ -88,7 +88,7 @@ def run_swiglu(
     # Example:
     swiglu = SwiGLU(d_model, d_ff)
     # If your state dict keys match, you can use `load_state_dict()`
-    swiglu.load_state_dict({"w1": w1_weight, "w2": w2_weight, "w3": w3_weight})
+    swiglu.load_state_dict({"w1.weight": w1_weight, "w2.weight": w2_weight, "w3.weight": w3_weight})
     # You can also manually assign the weights
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
@@ -151,10 +151,10 @@ def run_multihead_self_attention(
 
     att = CausalMultiHeadSelfAttention(d_model, num_heads)
     att.load_state_dict({
-        "w_q": q_proj_weight,
-        "w_k": k_proj_weight,
-        "w_v": v_proj_weight,
-        "w_o": o_proj_weight
+        "q_proj.weight": q_proj_weight,
+        "k_proj.weight": k_proj_weight,
+        "v_proj.weight": v_proj_weight,
+        "output_proj.weight": o_proj_weight
     })
     return att.forward(in_features)
 
@@ -200,10 +200,10 @@ def run_multihead_self_attention_with_rope(
     rope = RoPE(theta, d_model // num_heads, max_seq_len)
     att = CausalMultiHeadSelfAttention(d_model, num_heads, rope)
     att.load_state_dict({
-        "w_q": q_proj_weight,
-        "w_k": k_proj_weight,
-        "w_v": v_proj_weight,
-        "w_o": o_proj_weight
+        "q_proj.weight": q_proj_weight,
+        "k_proj.weight": k_proj_weight,
+        "v_proj.weight": v_proj_weight,
+        "output_proj.weight": o_proj_weight
     })
     return att.forward(in_features, token_positions)
 
@@ -303,8 +303,9 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-
-    return transformer_block(d_model, num_heads, d_ff, max_seq_len, theta, weights, in_features)
+    block = TransformerBlock(d_model, num_heads, d_ff, max_seq_len, theta)
+    block.load_state_dict(weights)
+    return block(in_features)
 
 
 def run_transformer_lm(
@@ -387,24 +388,18 @@ def run_transformer_lm(
         next-word distribution for each token.
     """
 
-    l = Embedding(vocab_size, d_model)
-    l.load_state_dict({"W": weights["token_embeddings.weight"]})
-    inp = l.forward(in_indices)
+    model = TransformerLM(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        d_model=d_model,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        rope_theta=rope_theta,
+    ).to(in_indices.device)
 
-    for layer in range(num_layers):
-        state_preifx = f"layers.{layer}."
-        out = transformer_block(d_model, num_heads, d_ff, context_length, rope_theta, weights, inp, state_preifx)
-        inp = out
-
-    ln_final = RMSNorm(d_model, 1e-5)
-    ln_final.load_state_dict({"weights": weights["ln_final.weight"]})
-    out = ln_final.forward(inp)
-
-    # out is [batch seq_len d_model]
-    lm = Linear(d_model, vocab_size)
-    lm.load_state_dict({"W": weights["lm_head.weight"]})
-    # pre_softmax is [batch seq_len vocab_size]
-    return lm.forward(out)
+    model.load_state_dict(weights)
+    return model(in_indices)
 
 
 def run_rmsnorm(
@@ -521,8 +516,6 @@ def run_cross_entropy(
     sum_ev = sum_ev.repeat(*repeat_vec)
 
     neg_log_prob = -(inputs-max_v) + sum_ev.log()
-
-    print(neg_log_prob)
 
     return (neg_log_prob[torch.arange(batch_size), targets]).mean()
 

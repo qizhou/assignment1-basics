@@ -11,7 +11,7 @@ from typing import Optional
 class Linear(torch.nn.Module):
     def __init__(self, in_features: int, out_features: int, device=None, dtype=None):
         super(Linear, self).__init__()
-        self.W = torch.nn.Parameter(torch.zeros(out_features, in_features))
+        self.W = torch.nn.Parameter(torch.zeros(out_features, in_features, device=device, dtype=dtype))
         std = math.sqrt(2/(in_features+out_features))
         torch.nn.init.trunc_normal_(self.W, 0, std, -3 * std, 3 * std)
 
@@ -34,7 +34,7 @@ class RMSNorm(torch.nn.Module):
     def __init__(self, d_model: int, eps: float = 1e-5, device=None, dtype=None):
         super(RMSNorm, self).__init__()
         self.d_model = d_model
-        self.weights = torch.nn.Parameter(torch.zeros(d_model))
+        self.weight = torch.nn.Parameter(torch.zeros(d_model))
         self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -57,7 +57,7 @@ class RMSNorm(torch.nn.Module):
 
         rms_a = x / rms_repeat
 
-        result = rms_a * self.weights
+        result = rms_a * self.weight
 
         return result.to(int_dtype)
 
@@ -72,18 +72,26 @@ class SiLU(torch.nn.Module):
 class SwiGLU(torch.nn.Module):
     def __init__(self, d_model, d_ff, device=None, dtype=None):
         super(SwiGLU, self).__init__()
-        self.w1 = torch.nn.Parameter(torch.zeros(d_ff, d_model))
-        self.w2 = torch.nn.Parameter(torch.zeros(d_model, d_ff))
-        self.w3 = torch.nn.Parameter(torch.zeros(d_ff, d_model))
+        # self.w1 = torch.nn.Parameter(torch.zeros(d_ff, d_model))
+        # self.w2 = torch.nn.Parameter(torch.zeros(d_model, d_ff))
+        # self.w3 = torch.nn.Parameter(torch.zeros(d_ff, d_model))
+        self.w1 = nn.Linear(d_model, d_ff, bias=False, device=device)
+        self.w2 = nn.Linear(d_ff, d_model, bias=False, device=device)
+        self.w3 = nn.Linear(d_model, d_ff, bias=False, device=device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x is ... d_model
-        w1x = einsum(self.w1, x, "d_ff d_model, ... d_model -> ... d_ff")
-        silu = w1x * torch.sigmoid(w1x)
-        w3x = einsum(self.w3, x, "d_ff d_model, ... d_model -> ... d_ff")
-        inner = silu * w3x
-        result = einsum(self.w2, inner, "d_model d_ff, ... d_ff -> ... d_model")
-        return result
+        # # x is ... d_model
+        # w1x = einsum(self.w1, x, "d_ff d_model, ... d_model -> ... d_ff")
+        # silu = w1x * torch.sigmoid(w1x)
+        # w3x = einsum(self.w3, x, "d_ff d_model, ... d_model -> ... d_ff")
+        # inner = silu * w3x
+        # result = einsum(self.w2, inner, "d_model d_ff, ... d_ff -> ... d_model")
+        # return result
+
+        w1x = self.w1(x)
+        gate = w1x * torch.sigmoid(w1x)     # (B, T, d_ff)
+        value = self.w3(x)            # (B, T, d_ff)
+        return self.w2(gate * value)  # (B, T, d_model)
 
 
 class RoPE(torch.nn.Module):
@@ -172,10 +180,10 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         self.d_k = self.d_v = d_model // num_heads
         self.d_model = d_model
         self.rope = rope
-        self.w_q = torch.nn.Parameter(torch.zeros(d_model, d_model))
-        self.w_k = torch.nn.Parameter(torch.zeros(d_model, d_model))
-        self.w_v = torch.nn.Parameter(torch.zeros(d_model, d_model))
-        self.w_o = torch.nn.Parameter(torch.zeros(d_model, d_model))
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.output_proj = nn.Linear(d_model, d_model, bias=False)
 
     def forward(self, in_features: torch.Tensor, token_positions: Tensor | None = None):
         # in_features "batch seq_len d_in=d_model"
@@ -185,9 +193,12 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         # 2 * B * T * D (Q) + B * S * D (K, V), where S is the K, V sequenced, and T is the query sequence
         # with prevous K, V's are cached.
         # E.g., if K, V are cached, generating one token (T = 1, B = 1) is 2 * D
-        q = einsum(in_features, self.w_q, "... seq_len d_model, dd d_model -> ... seq_len dd")
-        k = einsum(in_features, self.w_k, "... seq_len d_model, dd d_model -> ... seq_len dd")
-        v = einsum(in_features, self.w_v, "... seq_len d_model, dv d_model -> ... seq_len dv")
+        # q = einsum(in_features, self.q_proj, "... seq_len d_model, dd d_model -> ... seq_len dd")
+        # k = einsum(in_features, self.k_proj, "... seq_len d_model, dd d_model -> ... seq_len dd")
+        # v = einsum(in_features, self.v_proj, "... seq_len d_model, dv d_model -> ... seq_len dv")
+        q = self.q_proj(in_features)
+        k = self.k_proj(in_features)
+        v = self.v_proj(in_features)
 
         # Reshape into heads: "batch, num_heads, seq_len, d_k"
         q = q.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
@@ -211,7 +222,8 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         attn = attn.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
 
         # FLOPS: 2 * B * T * K * H
-        return einsum(attn, self.w_o, "... seq_len d_model, dd d_model -> ... seq_len dd")
+        #return einsum(attn, self.w_o, "... seq_len d_model, dd d_model -> ... seq_len dd")
+        return self.output_proj(attn)
 
 
 def transformer_block(
@@ -254,6 +266,67 @@ def transformer_block(
     second = first + swiglu.forward(ln2.forward(first))
 
     return second
+
+class TransformerBlock(nn.Module):
+    def __init__(self, d_model, num_heads, d_ff, max_seq_len, theta):
+        super().__init__()
+        self.ln1 = RMSNorm(d_model)
+        self.attn = CausalMultiHeadSelfAttention(
+            d_model=d_model,
+            num_heads=num_heads,
+            rope=RoPE(theta, d_model // num_heads, max_seq_len),
+        )
+        self.ln2 = RMSNorm(d_model)
+        self.ffn = SwiGLU(d_model=d_model, d_ff=d_ff)
+
+    def reset_parameters(self):
+        self.attn.reset_parameters()
+        self.ffn.reset_parameters()
+        nn.init.ones_(self.ln1.weight)
+        nn.init.ones_(self.ln2.weight)
+
+    def forward(self, x):
+        x = x + self.attn(self.ln1(x))
+        x = x + self.ffn(self.ln2(x))
+        return x
+
+
+class TransformerLM(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        d_model: int,
+        num_layers: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float,
+    ):
+        super().__init__()
+        self.token_embeddings = nn.Embedding(vocab_size, d_model)
+        self.layers = nn.ModuleList([
+            TransformerBlock(
+                d_model=d_model,
+                num_heads=num_heads,
+                d_ff=d_ff,
+                max_seq_len=context_length,
+                theta=rope_theta,
+            )
+            for _ in range(num_layers)
+        ])
+        self.ln_final = RMSNorm(d_model)
+        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+
+    def forward(self, in_indices: torch.Tensor) -> torch.Tensor:
+        x = self.token_embeddings(in_indices)   # (B, T, d_model)
+
+        for layer in self.layers:
+            x = layer(x)
+
+        x = self.ln_final(x)
+        logits = self.lm_head(x)               # (B, T, vocab_size)
+        return logits
+
 
 class AdamW(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3, weight_decay=0.01, betas=(0.9, 0.999), eps=1e-8):
