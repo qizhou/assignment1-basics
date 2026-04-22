@@ -8,7 +8,7 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock, calc_cross_entropy, get_lr_cosine_schedule, clip_gradient
+from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock, calc_cross_entropy, get_lr_cosine_schedule, clip_gradient, save_checkpoint, load_checkpoint
 from cs336_basics.tokenizer import get_batch
 
 from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries, Tokenizer, train_tokenizer
@@ -562,10 +562,7 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    mstate = model.state_dict()
-    optstate = optimizer.state_dict()
-    state = {"model": mstate, "optimizer": optstate, "iteration": iteration}
-    torch.save(state, out)
+    save_checkpoint(model, optimizer, iteration, out)
 
 
 def run_load_checkpoint(
@@ -586,10 +583,7 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    state = torch.load(src)
-    model.load_state_dict(state["model"])
-    optimizer.load_state_dict(state["optimizer"])
-    return state["iteration"]
+    return load_checkpoint(src, model, optimizer)
 
 
 def get_tokenizer(
