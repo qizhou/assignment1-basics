@@ -21,21 +21,21 @@ max_steps = total_tokens_processed // batch_size // context_length
 device = "cuda"
 
 max_lr = 3e-3
-min_lr = 3e-4          # 10% of max
+min_lr = max_lr / 10          # 10% of max
 warmup_steps = 500
 post_annealing_steps = 0
 
 if device != "mps":
     torch.set_float32_matmul_precision('high') # not for mps
 tokens = np.load(datafile)
-transformer = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta, device=device)
-transformer = torch.compile(transformer)
-optimizer = AdamW(transformer.parameters(), lr=1)
+model = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta, device=device)
+model = torch.compile(model)
+optimizer = AdamW(model.parameters(), lr=max_lr)
 
 for step in range(max_steps):
     input_ids, target_ids = get_batch(tokens, batch_size, context_length, device)
 
-    logits = transformer(input_ids)
+    logits = model(input_ids)
 
     # reshape logics from [batch, seq_len, vocab_size] to [batch * seq_len, vocab_size]
     # reshape target_ids from [batch, seq_len] to [batch * seq_len]
@@ -49,7 +49,7 @@ for step in range(max_steps):
 
     loss.backward()
 
-    clip_gradient(transformer.parameters(), 1.0)
+    clip_gradient(model.parameters(), 1.0)
     optimizer.step()
     optimizer.zero_grad()
 

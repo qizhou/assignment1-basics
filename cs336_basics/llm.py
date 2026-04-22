@@ -327,7 +327,7 @@ class TransformerLM(nn.Module):
 
 
 class AdamW(torch.optim.Optimizer):
-    def __init__(self, params, lr=1e-3, weight_decay=0.01, betas=(0.9, 0.999), eps=1e-8):
+    def __init__(self, params, lr=1e-3, weight_decay=0.1, betas=(0.9, 0.95), eps=1e-8):
         if lr < 0:
             raise ValueError(f"Invalid learning rate: {lr}")
         defaults = {"lr": lr, "betas": betas, "eps": eps, "weight_decay": weight_decay}
@@ -351,16 +351,18 @@ class AdamW(torch.optim.Optimizer):
                 v = state.get("v", torch.zeros(p.data.shape, device=p.data.device))
                 grad = p.grad.data # Get the gradient of loss with respect to p.
 
+                lr_t = lr * math.sqrt(1 - pow(beta2, t)) / (1 - pow(beta1, t))
+                p.data -= lr * weight_decay * p.data
+
                 m = beta1 * m + (1 - beta1) * grad
                 v = beta2 * v + (1 - beta2) * grad * grad
                 state["m"] = m
                 state["v"] = v
-                lr_t = lr * math.sqrt(1 - pow(beta2, t)) / (1 - pow(beta1, t))
 
                 p.data -= lr_t * m / (v.sqrt() + eps) # Update weight tensor in-place.
-                p.data -= lr * weight_decay * p.data
+
                 state["t"] = t + 1 # Increment iteration number.
-                return loss
+        return loss
 
 
 def calc_cross_entropy(inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]):
