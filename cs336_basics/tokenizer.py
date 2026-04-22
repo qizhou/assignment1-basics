@@ -368,8 +368,8 @@ def tokenize_file(datafile):
 
 def get_batch(dataset: npt.NDArray, batch_size: int, context_length: int, device: str):
     pos = [randrange(0, dataset.size - context_length) for _ in range(batch_size)]
-    batch = torch.tensor([dataset[st:st+context_length] for st in pos], device=device)
-    targets = torch.tensor([dataset[st+1:st+1+context_length] for st in pos], device=device)
+    batch = torch.tensor([dataset[st:st+context_length] for st in pos], device=device, dtype=torch.int)
+    targets = torch.tensor([dataset[st+1:st+1+context_length] for st in pos], device=device, dtype=torch.int)
     return (batch, targets)
 
 

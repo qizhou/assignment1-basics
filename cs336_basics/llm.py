@@ -11,7 +11,7 @@ from typing import Optional
 class Linear(torch.nn.Module):
     def __init__(self, in_features: int, out_features: int, device=None, dtype=None):
         super(Linear, self).__init__()
-        self.weight = torch.nn.Parameter(torch.zeros(out_features, in_features, device=device, dtype=dtype))
+        self.weight = torch.nn.Parameter(torch.zeros(out_features, in_features, device=device, dtype=dtype, requires_grad=True))
         std = math.sqrt(2/(in_features+out_features))
         torch.nn.init.trunc_normal_(self.weight, 0, std, -3 * std, 3 * std)
 
@@ -22,7 +22,7 @@ class Linear(torch.nn.Module):
 class Embedding(torch.nn.Module):
     def __init__(self, num_embeddings, embedding_dim, device=None, dtype=None):
         super(Embedding, self).__init__()
-        self.weight = torch.nn.Parameter(torch.zeros(num_embeddings, embedding_dim))
+        self.weight = torch.nn.Parameter(torch.zeros(num_embeddings, embedding_dim, device=device, dtype=dtype, requires_grad=True))
         std = 1
         torch.nn.init.trunc_normal_(self.weight, 0, std, -3 * std, 3 * std)
 
@@ -34,7 +34,7 @@ class RMSNorm(torch.nn.Module):
     def __init__(self, d_model: int, eps: float = 1e-5, device=None, dtype=None):
         super(RMSNorm, self).__init__()
         self.d_model = d_model
-        self.weight = torch.nn.Parameter(torch.zeros(d_model))
+        self.weight = torch.nn.Parameter(torch.ones(d_model, requires_grad=True, device=device, dtype=dtype))
         self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -341,6 +341,7 @@ class AdamW(torch.optim.Optimizer):
         v = None
         for group in self.param_groups:
             lr = group["lr"] # Get the learning rate.
+            print(lr)
             beta1, beta2 = group["betas"]
             eps = group["eps"]
             weight_decay = group["weight_decay"]
@@ -352,6 +353,7 @@ class AdamW(torch.optim.Optimizer):
                 m = state.get("m", torch.zeros(p.data.shape))
                 v = state.get("v", torch.zeros(p.data.shape))
                 grad = p.grad.data # Get the gradient of loss with respect to p.
+                print(grad)
 
                 m = beta1 * m + (1 - beta1) * grad
                 v = beta2 * v + (1 - beta2) * grad * grad
