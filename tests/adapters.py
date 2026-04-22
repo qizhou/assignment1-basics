@@ -9,10 +9,10 @@ import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock
+from cs336_basics.tokenizer import get_batch
 from math import cos, pi
 from random import randrange
 
-import regex as re
 from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries, Tokenizer, train_tokenizer
 
 
@@ -464,10 +464,7 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    pos = [randrange(0, dataset.size - context_length) for _ in range(batch_size)]
-    batch = torch.tensor([dataset[st:st+context_length] for st in pos], device=device)
-    targets = torch.tensor([dataset[st+1:st+1+context_length] for st in pos], device=device)
-    return (batch, targets)
+    return get_batch(dataset, batch_size, context_length, device)
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
