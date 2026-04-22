@@ -3,6 +3,7 @@
 from tokenizer import DATA_PATH, get_batch
 from llm import AdamW, TransformerLM, calc_cross_entropy, get_lr_cosine_schedule, clip_gradient
 import numpy as np
+import torch
 
 vocab_size = 10000
 context_length = 256
@@ -17,15 +18,18 @@ datafile = DATA_PATH / "TinyStoriesV2-GPT4-train.txt.npy"
 total_tokens_processed = 40000000 # for CPU
 batch_size = 32
 max_steps = total_tokens_processed // batch_size // context_length
-device = "mps"
+device = "cuda"
 
-max_lr = 3e-4
-min_lr = 3e-5          # 10% of max
+max_lr = 3e-3
+min_lr = 3e-4          # 10% of max
 warmup_steps = 500
-post_annealing_steps = 500
+post_annealing_steps = 0
 
+if device != "mps":
+    torch.set_float32_matmul_precision('high') # not for mps
 tokens = np.load(datafile)
 transformer = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta, device=device)
+transformer = torch.compile(transformer)
 optimizer = AdamW(transformer.parameters(), lr=1)
 
 for step in range(max_steps):
