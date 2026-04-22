@@ -6,6 +6,7 @@ import torch.nn as nn
 from jaxtyping import Bool, Float, Int
 from collections.abc import Callable, Iterable
 from typing import Optional
+from math import cos, pi
 
 
 class Linear(torch.nn.Module):
@@ -99,8 +100,8 @@ class RoPE(torch.nn.Module):
         super(RoPE, self).__init__()
         self.d_k = d_k
         self.max_seq_len = max_seq_len
-        i_s = torch.linspace(0, max_seq_len-1, max_seq_len)
-        t_s = 1.0 / (theta ** ((2 * torch.linspace(1, d_k//2, d_k//2) - 2) / d_k))
+        i_s = torch.linspace(0, max_seq_len-1, max_seq_len, device=device)
+        t_s = 1.0 / (theta ** ((2 * torch.linspace(1, d_k//2, d_k//2, device=device) - 2) / d_k))
 
         freqs = einsum(i_s, t_s, 'i,j->i j')
 
@@ -114,7 +115,7 @@ class RoPE(torch.nn.Module):
 
         if token_positions is None:
             # (T,)
-            token_positions = torch.arange(seq_len)
+            token_positions = torch.arange(seq_len, device=x.device)
 
         cos = self.rope_cos.index_select(0, token_positions.reshape(-1)).view(*token_positions.shape, -1)
         sin = self.rope_sin.index_select(0, token_positions.reshape(-1)).view(*token_positions.shape, -1)
@@ -174,16 +175,16 @@ def scaled_dot_product_attention(
 
 
 class CausalMultiHeadSelfAttention(torch.nn.Module):
-    def __init__(self, d_model, num_heads, rope=None):
+    def __init__(self, d_model, num_heads, rope=None, device=None):
         super(CausalMultiHeadSelfAttention, self).__init__()
         self.num_heads = num_heads
         self.d_k = self.d_v = d_model // num_heads
         self.d_model = d_model
         self.rope = rope
-        self.q_proj = nn.Linear(d_model, d_model, bias=False)
-        self.k_proj = nn.Linear(d_model, d_model, bias=False)
-        self.v_proj = nn.Linear(d_model, d_model, bias=False)
-        self.output_proj = nn.Linear(d_model, d_model, bias=False)
+        self.q_proj = Linear(d_model, d_model, device=device)
+        self.k_proj = Linear(d_model, d_model, device=device)
+        self.v_proj = Linear(d_model, d_model, device=device)
+        self.output_proj = Linear(d_model, d_model, device=device)
 
     def forward(self, in_features: torch.Tensor, token_positions: Tensor | None = None):
         # in_features "batch seq_len d_in=d_model"
@@ -210,7 +211,7 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
             k = self.rope(k, token_positions)
 
         # Create mask
-        mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool))
+        mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool, device=q.device))
         full_mask = mask.unsqueeze(0).unsqueeze(0)
 
         # attn "batch, num_heads, seq_len, d_k"
@@ -268,22 +269,17 @@ def transformer_block(
     return second
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, num_heads, d_ff, max_seq_len, theta):
+    def __init__(self, d_model, num_heads, d_ff, max_seq_len, theta, device=None):
         super().__init__()
-        self.ln1 = RMSNorm(d_model)
+        self.ln1 = RMSNorm(d_model, device=device)
         self.attn = CausalMultiHeadSelfAttention(
             d_model=d_model,
             num_heads=num_heads,
-            rope=RoPE(theta, d_model // num_heads, max_seq_len),
+            rope=RoPE(theta, d_model // num_heads, max_seq_len, device=device),
+            device=device
         )
-        self.ln2 = RMSNorm(d_model)
-        self.ffn = SwiGLU(d_model=d_model, d_ff=d_ff)
-
-    def reset_parameters(self):
-        self.attn.reset_parameters()
-        self.ffn.reset_parameters()
-        nn.init.ones_(self.ln1.weight)
-        nn.init.ones_(self.ln2.weight)
+        self.ln2 = RMSNorm(d_model, device=device)
+        self.ffn = SwiGLU(d_model=d_model, d_ff=d_ff, device=device)
 
     def forward(self, x):
         x = x + self.attn(self.ln1(x))
@@ -301,9 +297,10 @@ class TransformerLM(nn.Module):
         num_heads: int,
         d_ff: int,
         rope_theta: float,
+        device=None,
     ):
         super().__init__()
-        self.token_embeddings = Embedding(vocab_size, d_model)
+        self.token_embeddings = Embedding(vocab_size, d_model, device=device)
         self.layers = nn.ModuleList([
             TransformerBlock(
                 d_model=d_model,
@@ -311,11 +308,12 @@ class TransformerLM(nn.Module):
                 d_ff=d_ff,
                 max_seq_len=context_length,
                 theta=rope_theta,
+                device=device
             )
             for _ in range(num_layers)
         ])
-        self.ln_final = RMSNorm(d_model)
-        self.lm_head = Linear(d_model, vocab_size)
+        self.ln_final = RMSNorm(d_model, device=device)
+        self.lm_head = Linear(d_model, vocab_size, device=device)
 
     def forward(self, in_indices: torch.Tensor) -> torch.Tensor:
         x = self.token_embeddings(in_indices)   # (B, T, d_model)
@@ -341,7 +339,6 @@ class AdamW(torch.optim.Optimizer):
         v = None
         for group in self.param_groups:
             lr = group["lr"] # Get the learning rate.
-            print(lr)
             beta1, beta2 = group["betas"]
             eps = group["eps"]
             weight_decay = group["weight_decay"]
@@ -350,10 +347,9 @@ class AdamW(torch.optim.Optimizer):
                     continue
                 state = self.state[p] # Get state associated with p.
                 t = state.get("t", 1) # Get iteration number from the state, or initial value.
-                m = state.get("m", torch.zeros(p.data.shape))
-                v = state.get("v", torch.zeros(p.data.shape))
+                m = state.get("m", torch.zeros(p.data.shape, device=p.data.device))
+                v = state.get("v", torch.zeros(p.data.shape, device=p.data.device))
                 grad = p.grad.data # Get the gradient of loss with respect to p.
-                print(grad)
 
                 m = beta1 * m + (1 - beta1) * grad
                 v = beta2 * v + (1 - beta2) * grad * grad
@@ -384,3 +380,16 @@ def calc_cross_entropy(inputs: Float[Tensor, " batch_size vocab_size"], targets:
     neg_log_prob = -(inputs-max_v) + sum_ev.log()
 
     return (neg_log_prob[torch.arange(batch_size), targets]).mean()
+
+
+def get_lr_cosine_schedule(it: int,
+    max_learning_rate: float,
+    min_learning_rate: float,
+    warmup_iters: int,
+    cosine_cycle_iters: int,
+):
+    if it < warmup_iters:
+        return it / warmup_iters * max_learning_rate
+    if it > cosine_cycle_iters:
+        return min_learning_rate
+    return min_learning_rate + 0.5 * (1 + cos((it - warmup_iters)/(cosine_cycle_iters - warmup_iters)*pi)) * (max_learning_rate - min_learning_rate)

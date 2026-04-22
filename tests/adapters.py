@@ -8,9 +8,8 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock, calc_cross_entropy
+from cs336_basics.llm import RMSNorm, Linear, Embedding, SwiGLU, SiLU, RoPE, softmax, scaled_dot_product_attention, CausalMultiHeadSelfAttention, AdamW, TransformerLM, TransformerBlock, calc_cross_entropy, get_lr_cosine_schedule
 from cs336_basics.tokenizer import get_batch
-from math import cos, pi
 
 from cs336_basics.tokenizer import merge_once, merge, find_chunk_boundaries, Tokenizer, train_tokenizer
 
@@ -551,12 +550,7 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-
-    if it < warmup_iters:
-        return it / warmup_iters * max_learning_rate
-    if it > cosine_cycle_iters:
-        return min_learning_rate
-    return min_learning_rate + 0.5 * (1 + cos((it - warmup_iters)/(cosine_cycle_iters - warmup_iters)*pi)) * (max_learning_rate - min_learning_rate)
+    return get_lr_cosine_schedule(it, max_learning_rate, min_learning_rate, warmup_iters, cosine_cycle_iters)
 
 def run_save_checkpoint(
     model: torch.nn.Module,

@@ -1,9 +1,8 @@
 # Train tinystories
 
 from tokenizer import DATA_PATH, get_batch
-from llm import AdamW, TransformerLM, calc_cross_entropy
+from llm import AdamW, TransformerLM, calc_cross_entropy, get_lr_cosine_schedule
 import numpy as np
-import torch
 
 vocab_size = 10000
 context_length = 256
@@ -17,14 +16,19 @@ datafile = DATA_PATH / "TinyStoriesV2-GPT4-train.txt.npy"
 # total_tokens_processed = 327680000 # for GPU
 total_tokens_processed = 40000000 # for CPU
 batch_size = 32
-steps = total_tokens_processed // batch_size // context_length
-device = "cpu"
+max_steps = total_tokens_processed // batch_size // context_length
+device = "mps"
 
-tokens = np.load(datafile, "r")
-transformer = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta)
+max_lr = 3e-4
+min_lr = 3e-5          # 10% of max
+warmup_steps = 1000
+post_annealing_steps = 500
+
+tokens = np.load(datafile)
+transformer = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta, device=device)
 optimizer = AdamW(transformer.parameters(), lr=1)
 
-for _ in range(steps):
+for step in range(max_steps):
     input_ids, target_ids = get_batch(tokens, batch_size, context_length, device)
 
     logits = transformer(input_ids)
@@ -32,7 +36,12 @@ for _ in range(steps):
     # reshape logics from [batch, seq_len, vocab_size] to [batch * seq_len, vocab_size]
     # reshape target_ids from [batch, seq_len] to [batch * seq_len]
     loss = calc_cross_entropy(logits.reshape(-1, logits.size(-1)), target_ids.reshape(-1))
-    print(loss)
+
+    lr = get_lr_cosine_schedule(step, max_lr, min_lr, warmup_steps, max_steps-post_annealing_steps)
+    for g in optimizer.param_groups:
+        g["lr"] = lr
+
+    print(loss, lr)
 
     loss.backward()
     optimizer.step()
