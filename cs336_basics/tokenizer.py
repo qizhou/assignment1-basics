@@ -379,6 +379,7 @@ if __name__ == "__main__":
     # vocab_size = 10000
     datafile = "owt_train.txt"
     vocab_size = 32000
-    tokenize_file(datafile)
+    tokenize_file(datafile,vocab_size=vocab_size)
     # encode_file(datafile, inputfile="TinyStoriesV2-GPT4-valid.txt", outputfile="TinyStoriesV2-GPT4-valid.txt.npy")
-    # encode_file(datafile)
+    encode_file(datafile)
+    encode_file(datafile, inputfile="owt_valid.txt", outputfile="owt_valid.txt.npy")
