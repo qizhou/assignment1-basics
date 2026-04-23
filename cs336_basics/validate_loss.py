@@ -27,6 +27,7 @@ if device != "mps":
 
 model = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta, device=device)
 model = torch.compile(model)
+model.eval() # avoid dropout
 checkpoint = load_checkpoint(checkpoint_file, model, optimizer=None)
 
 dataset = np.load(datafile)
