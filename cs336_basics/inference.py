@@ -8,6 +8,7 @@ from llm import TransformerLM, load_checkpoint
 DATA_PATH = (pathlib.Path(__file__).resolve().parent.parent) / "data"
 
 prompt = "One day"
+prompt = "One day, a little boy named Tim found a big box."
 
 datafile = "TinyStoriesV2-GPT4-train.txt"
 checkpoint_file = "tsv2_ttp327680000_step19999_batch128.chkpnt" # ~1.28

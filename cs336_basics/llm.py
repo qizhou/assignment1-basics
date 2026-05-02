@@ -176,15 +176,19 @@ def scaled_dot_product_attention(
 
 
 class CausalMultiHeadSelfAttention(torch.nn.Module):
-    def __init__(self, d_model, num_heads, rope=None, device=None):
+    def __init__(self, d_model, num_heads, rope=None, device=None, group=None):
         super(CausalMultiHeadSelfAttention, self).__init__()
         self.num_heads = num_heads
         self.d_k = self.d_v = d_model // num_heads
         self.d_model = d_model
         self.rope = rope
+        if group is None:
+            group = num_heads
+        assert d_model % group == 0
         self.q_proj = Linear(d_model, d_model, device=device)
-        self.k_proj = Linear(d_model, d_model, device=device)
-        self.v_proj = Linear(d_model, d_model, device=device)
+        self.k_proj = Linear(d_model, group * self.d_k, device=device)
+        self.v_proj = Linear(d_model, group * self.d_k, device=device)
+        self.group = group
         self.output_proj = Linear(d_model, d_model, device=device)
 
     def forward(self, in_features: torch.Tensor, token_positions: Tensor | None = None):
@@ -204,8 +208,11 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
 
         # Reshape into heads: "batch, num_heads, seq_len, d_k"
         q = q.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
-        k = k.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
-        v = v.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+        k = k.view(batch, seq_len, self.group, self.d_k).transpose(1, 2)
+        v = v.view(batch, seq_len, self.group, self.d_k).transpose(1, 2)
+        if self.group != self.num_heads:
+            k = torch.repeat_interleave(k, self.num_heads // self.group, 1)
+            v = torch.repeat_interleave(v, self.num_heads // self.group, 1)
 
         if self.rope is not None:
             q = self.rope(q, token_positions)
@@ -270,14 +277,15 @@ def transformer_block(
     return second
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, num_heads, d_ff, max_seq_len, theta, device=None):
+    def __init__(self, d_model, num_heads, d_ff, max_seq_len, theta, device=None, attn_group=None):
         super().__init__()
         self.ln1 = RMSNorm(d_model, device=device)
         self.attn = CausalMultiHeadSelfAttention(
             d_model=d_model,
             num_heads=num_heads,
             rope=RoPE(theta, d_model // num_heads, max_seq_len, device=device),
-            device=device
+            device=device,
+            group=attn_group,
         )
         self.ln2 = RMSNorm(d_model, device=device)
         self.ffn = SwiGLU(d_model=d_model, d_ff=d_ff, device=device)
@@ -299,6 +307,7 @@ class TransformerLM(nn.Module):
         d_ff: int,
         rope_theta: float,
         device=None,
+        attn_group: int=None,
     ):
         super().__init__()
         self.token_embeddings = Embedding(vocab_size, d_model, device=device)
@@ -309,7 +318,8 @@ class TransformerLM(nn.Module):
                 d_ff=d_ff,
                 max_seq_len=context_length,
                 theta=rope_theta,
-                device=device
+                device=device,
+                attn_group=attn_group,
             )
             for _ in range(num_layers)
         ])
