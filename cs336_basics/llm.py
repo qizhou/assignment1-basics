@@ -176,7 +176,7 @@ def scaled_dot_product_attention(
 
 
 class CausalMultiHeadSelfAttention(torch.nn.Module):
-    def __init__(self, d_model, num_heads, rope=None, device=None, group=None):
+    def __init__(self, d_model, num_heads, rope=None, device=None, group=None, latent_dim=None):
         super(CausalMultiHeadSelfAttention, self).__init__()
         self.num_heads = num_heads
         self.d_k = self.d_v = d_model // num_heads
@@ -185,9 +185,16 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         if group is None:
             group = num_heads
         assert d_model % group == 0
-        self.q_proj = Linear(d_model, d_model, device=device)
-        self.k_proj = Linear(d_model, group * self.d_k, device=device)
-        self.v_proj = Linear(d_model, group * self.d_k, device=device)
+        self.latent_dim = self.d_model
+        if latent_dim is not None:
+            self.z_proj = Linear(d_model, latent_dim, device=device)
+            self.d_in = latent_dim
+        else:
+            self.d_in = d_model
+        self.q_proj = Linear(self.d_in, d_model, device=device)
+        self.k_proj = Linear(self.d_in, group * self.d_k, device=device)
+        self.v_proj = Linear(self.d_in, group * self.d_k, device=device)
+
         self.group = group
         self.output_proj = Linear(d_model, d_model, device=device)
 
@@ -202,6 +209,8 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         # q = einsum(in_features, self.q_proj, "... seq_len d_model, dd d_model -> ... seq_len dd")
         # k = einsum(in_features, self.k_proj, "... seq_len d_model, dd d_model -> ... seq_len dd")
         # v = einsum(in_features, self.v_proj, "... seq_len d_model, dv d_model -> ... seq_len dv")
+        if self.latent_dim is not None:
+            in_features = self.z_proj(in_features)
         q = self.q_proj(in_features)
         k = self.k_proj(in_features)
         v = self.v_proj(in_features)
@@ -209,7 +218,7 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         # Reshape into heads: "batch, num_heads, seq_len, d_k"
         q = q.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
         k = k.view(batch, seq_len, self.group, self.d_k).transpose(1, 2)
-        v = v.view(batch, seq_len, self.group, self.d_k).transpose(1, 2)
+        v = v.view(batch, seq_len, self.group, self.d_v).transpose(1, 2)
         if self.group != self.num_heads:
             k = torch.repeat_interleave(k, self.num_heads // self.group, 1)
             v = torch.repeat_interleave(v, self.num_heads // self.group, 1)
@@ -277,7 +286,7 @@ def transformer_block(
     return second
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, num_heads, d_ff, max_seq_len, theta, device=None, attn_group=None):
+    def __init__(self, d_model, num_heads, d_ff, max_seq_len, theta, device=None, attn_group=None, attn_latent_dim=None):
         super().__init__()
         self.ln1 = RMSNorm(d_model, device=device)
         self.attn = CausalMultiHeadSelfAttention(
@@ -286,6 +295,7 @@ class TransformerBlock(nn.Module):
             rope=RoPE(theta, d_model // num_heads, max_seq_len, device=device),
             device=device,
             group=attn_group,
+            latent_dim=attn_latent_dim,
         )
         self.ln2 = RMSNorm(d_model, device=device)
         self.ffn = SwiGLU(d_model=d_model, d_ff=d_ff, device=device)
@@ -308,6 +318,7 @@ class TransformerLM(nn.Module):
         rope_theta: float,
         device=None,
         attn_group: int=None,
+        attn_latent_dim: int = None,
     ):
         super().__init__()
         self.token_embeddings = Embedding(vocab_size, d_model, device=device)
@@ -320,6 +331,7 @@ class TransformerLM(nn.Module):
                 theta=rope_theta,
                 device=device,
                 attn_group=attn_group,
+                attn_latent_dim=attn_latent_dim,
             )
             for _ in range(num_layers)
         ])

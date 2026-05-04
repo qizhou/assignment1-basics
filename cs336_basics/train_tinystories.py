@@ -19,7 +19,8 @@ total_tokens_processed = 327680000 # for GPU
 # total_tokens_processed = 40000000 # for CPU
 batch_size = 64
 device = "cuda"
-attn_group = 2 # MQA/GQA group number.
+attn_group = None # MQA/GQA group number
+latent_dim = 128  # MLA latent dim
 
 # learning scheduling
 max_lr = 3e-3
@@ -35,7 +36,7 @@ if device != "mps":
 
 def train(vocab_size, context_length, d_model, d_ff, rope_theta, num_layers, num_heads, name, datafile, total_tokens_processed, batch_size, device, max_lr, min_lr, warmup_steps, post_annealing_steps, steps_per_checkpoint):
     tokens = np.load(datafile)
-    model = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta, device=device, attn_group=attn_group)
+    model = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta, device=device, attn_group=attn_group, attn_latent_dim=latent_dim)
     model = torch.compile(model)
     optimizer = AdamW(model.parameters(), lr=max_lr)
 
