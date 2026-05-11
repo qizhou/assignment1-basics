@@ -191,6 +191,8 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
             self.d_in = latent_dim
         else:
             self.d_in = d_model
+        # the query here is projected by full matrix Q, but it can be also improved by the latent layer
+        # as DeepSeek V2, V4 did.
         self.q_proj = Linear(self.d_model, d_model, device=device)
         self.k_proj = Linear(self.d_in, group * self.d_k, device=device)
         self.v_proj = Linear(self.d_in, group * self.d_k, device=device)
