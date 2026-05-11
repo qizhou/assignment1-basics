@@ -191,7 +191,7 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
             self.d_in = latent_dim
         else:
             self.d_in = d_model
-        self.q_proj = Linear(self.d_in, d_model, device=device)
+        self.q_proj = Linear(self.d_model, d_model, device=device)
         self.k_proj = Linear(self.d_in, group * self.d_k, device=device)
         self.v_proj = Linear(self.d_in, group * self.d_k, device=device)
 
@@ -209,11 +209,12 @@ class CausalMultiHeadSelfAttention(torch.nn.Module):
         # q = einsum(in_features, self.q_proj, "... seq_len d_model, dd d_model -> ... seq_len dd")
         # k = einsum(in_features, self.k_proj, "... seq_len d_model, dd d_model -> ... seq_len dd")
         # v = einsum(in_features, self.v_proj, "... seq_len d_model, dv d_model -> ... seq_len dv")
+        kv_in_features = in_features
         if self.latent_dim is not None:
-            in_features = self.z_proj(in_features)
+            kv_in_features = self.z_proj(in_features)
         q = self.q_proj(in_features)
-        k = self.k_proj(in_features)
-        v = self.v_proj(in_features)
+        k = self.k_proj(kv_in_features)
+        v = self.v_proj(kv_in_features)
 
         # Reshape into heads: "batch, num_heads, seq_len, d_k"
         q = q.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
